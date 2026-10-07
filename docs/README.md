@@ -24,6 +24,8 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 | 10 | [Future Features](./10-future-features.md) | Backlog, including mobile and standalone editing |
 | 11 | [Risks and Decisions](./11-risks-and-open-questions.md) | Known risks and the decisions made so far |
 | 12 | [Testing and Settings](./12-testing-and-settings.md) | Test strategy, app settings, logging |
+| 13 | [Running and Manual Testing](./13-run-and-manual-testing.md) | Launch steps, test media, manual test checklist |
+| 14 | [Content and Marketing](./14-content-and-marketing.md) | Positioning, demo plan, sponsor package, claims checklist |
 
 ## Key decisions at a glance
 
