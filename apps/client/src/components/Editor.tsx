@@ -4,6 +4,7 @@ import { PlayheadClock } from "../clock.js";
 import type { EngineConfig } from "../engine.js";
 import { getProject, sendCommands } from "../projectApi.js";
 import { planAddToTimeline, planDelete, planSplit, type Plan } from "../timelineOps.js";
+import { resolveShortcut } from "../shortcuts.js";
 import { Preview } from "./Preview.js";
 import { Timeline } from "./Timeline.js";
 import { useProxyStatus } from "../useProxyStatus.js";
@@ -59,13 +60,12 @@ export function Editor({ config, project: initialProject, folder, health, onClos
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.code === "Space") {
+      const action = resolveShortcut(e, (e.target as HTMLElement).tagName);
+      if (action === "toggle-play") {
         e.preventDefault();
         clock.toggle();
-      } else if (e.key === "s" || e.key === "S") split();
-      else if (e.key === "Delete" || e.key === "Backspace") remove();
+      } else if (action === "split") split();
+      else if (action === "delete") remove();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

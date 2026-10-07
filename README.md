@@ -14,7 +14,7 @@ Milestone 1 (foundation) is complete. M2 is in progress: project create/save/ope
 - `apps/desktop`: Electron shell that launches the engine.
 - `apps/vision`: FastAPI stub with `/health` (Python 3.11-3.12, managed by `uv`).
 
-How to run and test: [docs/13-run-and-manual-testing.md](./docs/13-run-and-manual-testing.md). Marketing and sponsor plan: [docs/14-content-and-marketing.md](./docs/14-content-and-marketing.md).
+How to run and test: [docs/13-run-and-manual-testing.md](./docs/13-run-and-manual-testing.md). Marketing and sponsor plan: [docs/14-content-and-marketing.md](./docs/14-content-and-marketing.md). Future idea: [auto-captions concept](./docs/15-captions-concept.md).
 
 Known limitations are tracked in [docs/10-future-features.md](./docs/10-future-features.md).
 

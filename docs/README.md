@@ -26,6 +26,7 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 | 12 | [Testing and Settings](./12-testing-and-settings.md) | Test strategy, app settings, logging |
 | 13 | [Running and Manual Testing](./13-run-and-manual-testing.md) | Launch steps, test media, manual test checklist |
 | 14 | [Content and Marketing](./14-content-and-marketing.md) | Positioning, demo plan, sponsor package, claims checklist |
+| 15 | [Captions Concept](./15-captions-concept.md) | Future feature: auto-captions with a separate caption timeline (design note, not scheduled) |
 
 ## Key decisions at a glance
 

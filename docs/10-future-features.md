@@ -33,7 +33,11 @@ Small problems seen while running the app. We keep watching for these and fix th
 | K7 | Media is not verified when a project opens, so a moved or deleted source file is only discovered when it is used. | A missing file would break preview and export with an unclear error. | On open, check each asset path and flag missing ones as "offline" in the assets pane; export refuses with a clear list. | Open, scheduled before export |
 | K8 | In copy mode the file is copied before the command batch is committed; if the batch fails, an orphan copy stays in `media/`. | Wasted disk only. | Delete the copy if the batch fails. | Open |
 | K9 | A proxy that finishes after its asset was removed fails `SetAssetProxy` with `NOT_FOUND` and shows as failed. | Harmless noise. | Treat `NOT_FOUND` as "cancelled". | Open |
-| K10 | No project schema migration path yet. | None until the schema changes after projects exist. | Add a version check and migration hook before the first schema change to saved data. | Open, watch |
+| K10 | No project schema migration path yet. | None until the schema changes after projects exist. | Add a version check and migration hook before the first schema change to saved data. Captions (doc 15) will be the first such change. | Open, watch |
+| K11 | The `S` and Delete shortcuts were ignored while a toolbar button had focus (for example right after clicking Split or Play). | Shortcuts seemed to stop working until the user clicked elsewhere. | Only Space is left to a focused button; covered by unit tests (`shortcuts.test.ts`). Found in the pre-Slice C review. | Fixed |
+| K12 | Edits are planned from the client's last known project, so two quick edits (for example `S` pressed twice) can send a stale second batch. | The engine rejects it safely, but the user sees a spurious error. | Serialise edits in the editor (queue, plan at send time); do it with undo/redo in M3. | Open |
+| K13 | Every command batch rewrites `project.json` and copies the previous file to `.bak`. | Fine for click edits, wasteful for drag edits. | Coalesce or debounce autosave in the engine before M3 drag editing. | Open, before M3 |
+| K14 | The top bar shows a fixed "Autosaved" label; a failed save only appears as a message in the timeline toolbar. | A save failure is easy to miss. | Real save status in the top bar (saving, saved, failed) with the export UI work. | Open |
 
 ## Triage
 
@@ -43,12 +47,12 @@ Tiers follow common QA terms. Tier 1 blocks forward work, Tier 2 must be done be
 |---|---|---|
 | Tier 1: Blocker | Stop and fix now | None |
 | Tier 2: Major | Fix inside the slice that depends on it | K7 (before Slice C export) |
-| Tier 3: Moderate | Schedule soon; no user-visible risk today | K1, K5 (dev experience), K8, L4 (default token), L5 (`/health` cost), K10 (before first schema change) |
-| Tier 4: Minor | Fix if cheap, or accept for the prototype | K3, K9, L3 (drag-and-drop), L6 (component tests; revisit once the timeline UI lands), L7 |
+| Tier 3: Moderate | Schedule soon; no user-visible risk today | K1, K5 (dev experience), K8, K12 (with undo, M3), K13 (before M3 drag editing), L4 (default token), L5 (`/health` cost), K10 (before first schema change) |
+| Tier 4: Minor | Fix if cheap, or accept for the prototype | K3, K9, K14 (with the export UI), L3 (drag-and-drop), L6 (component tests; the timeline UI now exists, so add a first Testing Library test soon), L7 |
 | Planned | Already on the roadmap | L2 (packaging, after M2) |
-| Resolved | Done | K2, K4, K6, L1 |
+| Resolved | Done | K2, K4, K6, K11, L1 |
 
-Decision: K6 was fixed in Slice B step 2. K7 is done before export.
+Decision: K11 was fixed in the pre-Slice C review. K7 is done before export.
 ## Platform
 - **Mobile as remote editor:** the client connects to a PC engine over LAN with token auth, using a stacked responsive layout and touch interactions.
 - **Standalone on-device editing:** run `timeline-core` on-device with a native media backend; consider a Capacitor or Tauri wrapper. The pure command layer and shared schema are designed for this.
@@ -56,7 +60,8 @@ Decision: K6 was fixed in Slice B step 2. K7 is done before export.
 - Collaboration.
 
 ## Editing
-- Text and titles, captions and speech-to-text
+- **Auto-captions with a separate, collapsible caption timeline** (concept note: [Captions Concept](./15-captions-concept.md)); to be built once the prototype is solid
+- Text and titles
 - Transitions, effects and filters
 - Keyframes, speed changes, reverse
 - Audio waveforms, volume, fades, beat sync
@@ -65,7 +70,7 @@ Decision: K6 was fixed in Slice B step 2. K7 is done before export.
 - Project templates
 
 ## AI
-- Additional quick actions: silence removal, auto-captions, highlight reels, filler cut, rhythmic or beat-aligned assembly
+- Additional quick actions: silence removal, auto-captions (see [Captions Concept](./15-captions-concept.md)), highlight reels, filler cut, rhythmic or beat-aligned assembly
 - Multi-step edit plans with review
 - Natural language timeline commands (split, trim, append)
 - Model selection and benchmarking per task

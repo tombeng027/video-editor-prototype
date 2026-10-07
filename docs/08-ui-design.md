@@ -57,6 +57,9 @@ A **Settings** dialog (reachable from both screens) holds the app-level settings
 - A toggle for conversational-only mode.
 - AI-applied edits are labelled in history and can be undone.
 
+### Future: caption panel
+Captions are not part of the main timeline. A separate collapsible panel under it is planned, so the main timeline stays focused on video edits. See [Captions Concept](./15-captions-concept.md).
+
 ## Status and diagnostics
 
 A small status area shows engine, FFmpeg, Ollama and vision service readiness with a short fix hint when a component is unavailable.
