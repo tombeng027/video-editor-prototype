@@ -1,0 +1,22 @@
+{
+  "name": "video-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "scripts": {
+    "dev:client": "pnpm --filter @ve/client dev",
+    "dev:engine": "pnpm --filter @ve/engine dev",
+    "dev:desktop": "pnpm --filter @ve/desktop dev",
+    "test": "vitest run",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}
