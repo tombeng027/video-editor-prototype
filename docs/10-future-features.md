@@ -18,6 +18,15 @@ Found while building M1. None blocks the prototype.
 | L6 | No React component tests and no tests for the Electron `main.ts` | Add Testing Library tests as UI logic grows |
 | L7 | No Host-header validation (DNS-rebinding hardening) | Optional; the token already blocks this |
 
+## Known issues
+
+Small problems seen while running the app. We keep watching for these and fix them when the fix is cheap and does not affect the main flow. Add new ones as they appear.
+
+| # | Issue | Impact | Plan | Status |
+|---|---|---|---|---|
+| K1 | An engine started from a shell whose PATH predates the FFmpeg install reports FFmpeg as unavailable (found in a stale `pnpm start`). | Dev only; a fresh shell or the Electron app is fine. | Add an FFmpeg path setting (`FFMPEG_PATH` exists) and show a clear "restart your terminal" hint in diagnostics when FFmpeg is missing. | Open |
+| K2 | The "Frame rate" select and the "use first video's frame rate" checkbox share a label, so the name is ambiguous for screen readers and test selectors. | Accessibility and testing; no functional effect. | Reword the checkbox label ("Match the first imported video"). | Fixed |
+| K3 | The native folder picker was only checked through the bridge, not by clicking it. | Low. | Check manually once; add an IPC test seam if it breaks. | Open |
 ## Platform
 - **Mobile as remote editor:** the client connects to a PC engine over LAN with token auth, using a stacked responsive layout and touch interactions.
 - **Standalone on-device editing:** run `timeline-core` on-device with a native media backend; consider a Capacitor or Tauri wrapper. The pure command layer and shared schema are designed for this.

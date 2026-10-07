@@ -99,7 +99,7 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
             checked={form.matchFirstImport}
             onChange={(e) => update("matchFirstImport", e.target.checked)}
           />
-          Use the first imported video's frame rate instead
+          Match the first imported video
         </label>
         {error && <p role="alert" className="error">{error}</p>}
         <div className="actions">
