@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Project } from "@ve/schema";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Asset, Project } from "@ve/schema";
+import { PlayheadClock } from "../clock.js";
 import type { EngineConfig } from "../engine.js";
-import { getProject } from "../projectApi.js";
+import { getProject, sendCommands } from "../projectApi.js";
+import { planAddToTimeline, planDelete, planSplit, type Plan } from "../timelineOps.js";
+import { Preview } from "./Preview.js";
+import { Timeline } from "./Timeline.js";
 import { useProxyStatus } from "../useProxyStatus.js";
 import { AssetsPane } from "./AssetsPane.js";
 import { DEFAULT_SIZES, clampSize, loadSizes, saveSizes, type PaneSizes } from "../layout.js";
@@ -16,6 +20,57 @@ export function Editor({ config, project: initialProject, folder, health, onClos
   const proxyStates = useProxyStatus(config, () => {
     void getProject(config).then((r) => r.ok && setProject(r.data.project));
   });
+  const clock = useMemo(() => new PlayheadClock(), []);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [editMessage, setEditMessage] = useState<string | null>(null);
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
+  useEffect(() => () => clock.dispose(), [clock]);
+
+  // The engine stays the single source of truth: send the batch, then adopt its project.
+  const run = useCallback(
+    async (plan: Plan): Promise<boolean> => {
+      if (!plan.ok) {
+        setEditMessage(plan.message);
+        return false;
+      }
+      const result = await sendCommands(config, plan.commands);
+      if (!result.ok) {
+        setEditMessage(result.message);
+        return false;
+      }
+      setEditMessage(null);
+      setProject(result.data.project);
+      return true;
+    },
+    [config],
+  );
+
+  const addToTimeline = useCallback((asset: Asset) => void run(planAddToTimeline(projectRef.current, asset)), [run]);
+  const split = useCallback(
+    () => void run(planSplit(projectRef.current, clock.frame, selectedClipId)),
+    [run, clock, selectedClipId],
+  );
+  const remove = useCallback(() => {
+    const plan = planDelete(projectRef.current, selectedClipId);
+    void run(plan).then((ok) => ok && setSelectedClipId(null));
+  }, [run, selectedClipId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        clock.toggle();
+      } else if (e.key === "s" || e.key === "S") split();
+      else if (e.key === "Delete" || e.key === "Backspace") remove();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clock, split, remove]);
+
   const [sizes, setSizes] = useState<PaneSizes>(() => loadSizes(localStorage));
   const dragStart = useRef<PaneSizes>(sizes);
 
@@ -48,7 +103,7 @@ export function Editor({ config, project: initialProject, folder, health, onClos
 
       <div className="workspace">
         <div className="upper" style={{ gridTemplateColumns: `${assetsWidth}px 6px 1fr ${assistantOpen ? `6px ${assistantWidth}px` : ""}` }}>
-          <AssetsPane config={config} project={project} proxyStates={proxyStates} onProject={setProject} />
+          <AssetsPane config={config} project={project} proxyStates={proxyStates} onProject={setProject} onAddToTimeline={addToTimeline} />
           <Splitter
             orientation="vertical"
             label="Resize assets pane"
@@ -58,11 +113,7 @@ export function Editor({ config, project: initialProject, folder, health, onClos
           />
           <section className="pane" aria-label="Preview">
             <h2>Preview</h2>
-            <div className="preview-frame">
-              <span className="placeholder">
-                {project.settings.width}×{project.settings.height} @ {project.settings.fps.num}/{project.settings.fps.den} fps
-              </span>
-            </div>
+            <Preview config={config} project={project} clock={clock} />
           </section>
           {assistantOpen && (
             <>
@@ -89,8 +140,15 @@ export function Editor({ config, project: initialProject, folder, health, onClos
           onNudge={(d) => setNumeric("timelineHeight", timelineHeight - d)}
         />
         <section className="pane timeline" style={{ height: timelineHeight }} aria-label="Timeline">
-          <h2>Timeline</h2>
-          <p className="placeholder">Ruler, tracks and playhead (M2-M3).</p>
+          <Timeline
+            project={project}
+            clock={clock}
+            selectedClipId={selectedClipId}
+            message={editMessage}
+            onSelect={setSelectedClipId}
+            onSplit={split}
+            onDelete={remove}
+          />
         </section>
       </div>
 

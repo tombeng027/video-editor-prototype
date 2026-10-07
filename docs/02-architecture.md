@@ -66,7 +66,7 @@ video-editor/
 - The **client** holds the live project state and runs the shared `timeline-core` reducer, so edits feel instant and undo/redo is local.
 - Each committed command is sent to the **engine**, which applies the same reducer to its own copy, autosaves it, and uses it to validate AI proposals. The engine copy is the source for what is written to `project.json`.
 - On reconnect or open, the client loads the full project from the engine. If the copies diverge (the engine rejects a command), the client reloads the engine's state and tells the user.
-- **Current implementation (M2 Slice A):** the engine owns the single open project and applies every command batch (`POST /project/commands`), autosaving after each one and returning the new project plus the inverse commands. The client does not apply commands locally yet; optimistic local application arrives with the timeline in Slice B.
+- **Current implementation (M2 Slice A):** the engine owns the single open project and applies every command batch (`POST /project/commands`), autosaving after each one and returning the new project plus the inverse commands. The client also does not apply commands locally: since Slice B step 2 it sends each batch to the engine and adopts the returned project, so there is one source of truth and no divergence to reconcile. The engine is local, so the round trip is a few milliseconds. Optimistic local application (using the same reducer) stays an option if drag editing in M3 needs it.
 - Commands triggered by AI confirmations (such as `InsertSequence`) are dispatched by the client like any manual command.
 
 ## Media tools

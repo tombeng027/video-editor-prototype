@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Project, ProxyState } from "@ve/schema";
+import type { Asset, Project, ProxyState } from "@ve/schema";
 import { assetSeconds, formatDuration, formatFps, proxyBadge } from "../assets.js";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig } from "../engine.js";
@@ -10,9 +10,10 @@ type Props = {
   project: Project;
   proxyStates: Map<string, ProxyState>;
   onProject: (project: Project) => void;
+  onAddToTimeline: (asset: Asset) => void;
 };
 
-export function AssetsPane({ config, project, proxyStates, onProject }: Props) {
+export function AssetsPane({ config, project, proxyStates, onProject, onAddToTimeline }: Props) {
   const bridge = getBridge();
   const [copy, setCopy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -84,6 +85,11 @@ export function AssetsPane({ config, project, proxyStates, onProject }: Props) {
                   {asset.mediaMode === "copy" ? " · copied" : ""}
                 </span>
                 {badge.tone !== "none" && <span className={`badge ${badge.tone}`}>{badge.label}</span>}
+                {asset.kind === "video" && (
+                  <button onClick={() => onAddToTimeline(asset)} aria-label={`Add ${asset.name} to timeline`}>
+                    Add to timeline
+                  </button>
+                )}
               </li>
             );
           })}

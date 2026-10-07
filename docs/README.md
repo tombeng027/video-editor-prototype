@@ -36,7 +36,7 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 - **Engine:** Node/TypeScript (Fastify) service owning files, FFmpeg, export and the Ollama proxy.
 - **Vision:** Python (FastAPI) service with OpenCV and CLIP, called only by the engine.
 - **Time:** integer frames with a rational frame rate, never floating-point seconds.
-- **Edits:** every change is a typed command; AI proposes, the user confirms. The client runs the shared reducer and mirrors each command to the engine.
+- **Edits:** every change is a typed command; AI proposes, the user confirms. The client sends each command batch to the engine, which applies it with the shared reducer and returns the new project.
 - **Preview vs export:** proxy-based HTML video preview; FFmpeg for final export.
 
 ## Source material

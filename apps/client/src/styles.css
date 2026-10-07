@@ -75,3 +75,22 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .badge.ok { color: var(--ok, #4caf7d); }
 .badge.busy { color: var(--muted); }
 .badge.error { color: var(--bad); }
+
+.assets li button { align-self: flex-start; margin-top: 4px; }
+.preview-frame video { width: 100%; height: 100%; object-fit: contain; background: #000; border-radius: 4px; }
+.preview-frame video.hidden { display: none; }
+.preview-frame { position: relative; }
+.pane.timeline { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.transport { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: wrap; }
+.transport .timecode { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; min-width: 9ch; }
+.transport label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.transport select { background: #12151a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font: inherit; }
+.tl-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: #14161a; }
+.tl-content { position: relative; min-height: 100%; user-select: none; touch-action: none; cursor: default; }
+.tl-ruler { position: relative; height: 22px; border-bottom: 1px solid var(--border); }
+.tl-tick { position: absolute; top: 0; height: 100%; padding-left: 4px; border-left: 1px solid var(--border); font-size: 10px; color: var(--muted); line-height: 22px; }
+.tl-lane { position: relative; height: 52px; border-bottom: 1px solid var(--border); }
+.tl-empty { padding: 12px; }
+.tl-clip { position: absolute; top: 4px; bottom: 4px; background: #2f5fb3; border: 1px solid #5b8def; border-radius: 4px; padding: 4px 6px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tl-clip.selected { background: #3b72d6; border-color: #fff; }
+.tl-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-left: 2px solid #ff5a5f; pointer-events: none; z-index: 2; }

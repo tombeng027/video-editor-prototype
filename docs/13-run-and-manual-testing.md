@@ -121,10 +121,15 @@ Mark each as Pass, Fail or N/A with the date and build (`git rev-parse --short H
 - [ ] With "Copy files into the project" on, the file appears under `media/`.
 - [ ] Delete a proxy in `proxies/`, close, reopen: it regenerates.
 
-### M2 Slice B step 2: timeline and preview (when built)
-- [ ] Add a clip to the timeline; scrub; play and pause; the timecode follows.
-- [ ] Split at the playhead; the two clips play back-to-back with no visible gap.
-- [ ] The last frame of a clip does not freeze or go black (K6).
+### M2 Slice B step 2: timeline and preview
+- [ ] "Add to timeline" places the clip at the start; adding again appends it after the last clip.
+- [ ] Click or drag in the ruler or lane to scrub; the preview and timecode follow.
+- [ ] Play and pause (button and Space); Speed 0.5x, 1x, 1.5x and 2x change the pace.
+- [ ] Split (button or S) at the playhead; the two halves play back-to-back with no visible gap.
+- [ ] Select a clip and Delete it; playing across the gap shows "No clip here", then resumes with the next clip.
+- [ ] At the end of the timeline playback stops and holds the last frame (K6).
+- [ ] Zoom in and out keeps the playhead and clips aligned.
+- [ ] Close and reopen the project: the clips are still there.
 
 ### M2 Slice C: export (when built)
 - [ ] Save, close, reopen: the timeline is identical.
