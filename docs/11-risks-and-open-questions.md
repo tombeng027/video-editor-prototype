@@ -29,4 +29,6 @@
 
 ## Open questions
 
-None at this time. Revisit after M2 (real import and export behaviour) and M6 (vision and preview measurements).
+For later, when captions are designed (see [Captions concept](./15-captions-concept.md)): should captions follow video edits (ripple with the clips they were generated from), or stay fixed on the timeline?
+
+Otherwise none at this time. Revisit after M2 (real import and export behaviour) and M6 (vision and preview measurements).

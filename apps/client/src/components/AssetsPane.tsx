@@ -9,11 +9,12 @@ type Props = {
   config: EngineConfig;
   project: Project;
   proxyStates: Map<string, ProxyState>;
+  offline: ReadonlySet<string>;
   onProject: (project: Project) => void;
   onAddToTimeline: (asset: Asset) => void;
 };
 
-export function AssetsPane({ config, project, proxyStates, onProject, onAddToTimeline }: Props) {
+export function AssetsPane({ config, project, proxyStates, offline, onProject, onAddToTimeline }: Props) {
   const bridge = getBridge();
   const [copy, setCopy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -76,6 +77,7 @@ export function AssetsPane({ config, project, proxyStates, onProject, onAddToTim
         <ul className="assets">
           {project.assets.map((asset) => {
             const badge = proxyBadge(asset, proxyStates.get(asset.id));
+            const isOffline = offline.has(asset.id);
             return (
               <li key={asset.id}>
                 <strong title={asset.sourcePath}>{asset.name}</strong>
@@ -84,9 +86,10 @@ export function AssetsPane({ config, project, proxyStates, onProject, onAddToTim
                   {formatDuration(assetSeconds(asset))}
                   {asset.mediaMode === "copy" ? " · copied" : ""}
                 </span>
+                {isOffline && <span className="badge offline" title="The source file cannot be found">Offline</span>}
                 {badge.tone !== "none" && <span className={`badge ${badge.tone}`}>{badge.label}</span>}
                 {asset.kind === "video" && (
-                  <button onClick={() => onAddToTimeline(asset)} aria-label={`Add ${asset.name} to timeline`}>
+                  <button onClick={() => onAddToTimeline(asset)} disabled={isOffline} aria-label={`Add ${asset.name} to timeline`}>
                     Add to timeline
                   </button>
                 )}

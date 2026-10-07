@@ -93,4 +93,11 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .tl-empty { padding: 12px; }
 .tl-clip { position: absolute; top: 4px; bottom: 4px; background: #2f5fb3; border: 1px solid #5b8def; border-radius: 4px; padding: 4px 6px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tl-clip.selected { background: #3b72d6; border-color: #fff; }
-.tl-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-left: 2px solid #ff5a5f; pointer-events: none; z-index: 2; }
+.tl-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-left: 2px solid #ff5a5f; pointer-events: none; z-index: 2; }.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 10; }
+.modal { background: var(--panel, #1d2026); border: 1px solid #3a3f4a; border-radius: 8px; padding: 16px 20px; width: min(520px, 90vw); display: flex; flex-direction: column; gap: 10px; }
+.modal progress { width: 100%; }
+.modal-actions { justify-content: flex-end; }
+.modal code { word-break: break-all; }
+.badge.offline { color: var(--bad); }
+.tl-clip.offline { background: #5a2b2b; border-color: #c55; border-style: dashed; }
+.modal-actions { display: flex; gap: 8px; }

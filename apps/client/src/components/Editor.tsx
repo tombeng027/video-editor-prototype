@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, Project } from "@ve/schema";
 import { PlayheadClock } from "../clock.js";
 import type { EngineConfig } from "../engine.js";
-import { getProject, sendCommands } from "../projectApi.js";
+import { getMediaStatus, getProject, sendCommands } from "../projectApi.js";
 import { planAddToTimeline, planDelete, planSplit, type Plan } from "../timelineOps.js";
 import { resolveShortcut } from "../shortcuts.js";
 import { Preview } from "./Preview.js";
@@ -11,6 +11,8 @@ import { useProxyStatus } from "../useProxyStatus.js";
 import { AssetsPane } from "./AssetsPane.js";
 import { DEFAULT_SIZES, clampSize, loadSizes, saveSizes, type PaneSizes } from "../layout.js";
 import type { HealthResult } from "../engine.js";
+import { ExportDialog } from "./ExportDialog.js";
+import { exportDisabledReason, saveLabel, type SaveStatus } from "../exportStatus.js";
 import { Splitter } from "./Splitter.js";
 import { StatusArea } from "./StatusArea.js";
 
@@ -24,10 +26,23 @@ export function Editor({ config, project: initialProject, folder, health, onClos
   const clock = useMemo(() => new PlayheadClock(), []);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [offline, setOffline] = useState<ReadonlySet<string>>(new Set());
   const projectRef = useRef(project);
   projectRef.current = project;
 
   useEffect(() => () => clock.dispose(), [clock]);
+
+  // Re-check for missing source files when assets change and when the window regains focus.
+  const refreshOffline = useCallback(() => {
+    void getMediaStatus(config).then((r) => r.ok && setOffline(new Set(r.data.offline.map((o) => o.assetId))));
+  }, [config]);
+  useEffect(() => {
+    refreshOffline();
+    window.addEventListener("focus", refreshOffline);
+    return () => window.removeEventListener("focus", refreshOffline);
+  }, [refreshOffline, project.assets.length]);
 
   // The engine stays the single source of truth: send the batch, then adopt its project.
   const run = useCallback(
@@ -36,11 +51,14 @@ export function Editor({ config, project: initialProject, folder, health, onClos
         setEditMessage(plan.message);
         return false;
       }
+      setSaveStatus("saving");
       const result = await sendCommands(config, plan.commands);
       if (!result.ok) {
         setEditMessage(result.message);
+        setSaveStatus("error");
         return false;
       }
+      setSaveStatus("saved");
       setEditMessage(null);
       setProject(result.data.project);
       return true;
@@ -84,17 +102,20 @@ export function Editor({ config, project: initialProject, folder, health, onClos
     setSizes((s) => ({ ...s, [key]: clampSize(key, value) }));
 
   const { assetsWidth, assistantWidth, timelineHeight, assistantOpen } = sizes;
+  const exportReason = exportDisabledReason(project, offline.size);
 
   return (
     <div className="editor">
       <header className="topbar">
         <button onClick={onClose}>← Projects</button>
         <strong>{project.name}</strong>
-        <span className="muted" title={folder}>Autosaved</span>
+        <span className={saveStatus === "error" ? "error" : "muted"} title={folder} role="status">{saveLabel(saveStatus)}</span>
         <span className="spacer" />
         <button disabled title="Available in M3">Undo</button>
         <button disabled title="Available in M3">Redo</button>
-        <button disabled title="Available in M2">Export</button>
+        <button onClick={() => setExportOpen(true)} disabled={exportReason !== null} title={exportReason ?? "Export the timeline to MP4"}>
+          Export
+        </button>
         <button onClick={() => setSizes((s) => ({ ...s, assistantOpen: !s.assistantOpen }))}>
           {assistantOpen ? "Hide assistant" : "Show assistant"}
         </button>
@@ -103,7 +124,7 @@ export function Editor({ config, project: initialProject, folder, health, onClos
 
       <div className="workspace">
         <div className="upper" style={{ gridTemplateColumns: `${assetsWidth}px 6px 1fr ${assistantOpen ? `6px ${assistantWidth}px` : ""}` }}>
-          <AssetsPane config={config} project={project} proxyStates={proxyStates} onProject={setProject} onAddToTimeline={addToTimeline} />
+          <AssetsPane config={config} project={project} proxyStates={proxyStates} offline={offline} onProject={setProject} onAddToTimeline={addToTimeline} />
           <Splitter
             orientation="vertical"
             label="Resize assets pane"
@@ -144,6 +165,7 @@ export function Editor({ config, project: initialProject, folder, health, onClos
             project={project}
             clock={clock}
             selectedClipId={selectedClipId}
+            offline={offline}
             message={editMessage}
             onSelect={setSelectedClipId}
             onSplit={split}
@@ -151,6 +173,8 @@ export function Editor({ config, project: initialProject, folder, health, onClos
           />
         </section>
       </div>
+
+      {exportOpen && <ExportDialog config={config} onClose={() => setExportOpen(false)} />}
 
       <footer className="statusbar">
         <StatusArea result={health} />

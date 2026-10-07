@@ -1,14 +1,18 @@
 import {
   CommandsResponseSchema,
+  ExportStateSchema,
   ImportResponseSchema,
+  MediaStatusResponseSchema,
   ProjectResponseSchema,
   RecentProjectsResponseSchema,
   TOKEN_HEADER,
   type Command,
   type CommandsResponse,
   type CreateProjectRequest,
+  type ExportState,
   type ImportRequest,
   type ImportResponse,
+  type MediaStatusResponse,
   type ProjectResponse,
   type RecentProject,
 } from "@ve/schema";
@@ -70,3 +74,15 @@ export const importFiles = (c: EngineConfig, req: ImportRequest, f?: typeof fetc
 
 export const getProject = (c: EngineConfig, f?: typeof fetch) =>
   call<ProjectResponse>(c, "GET", "/project", ProjectResponseSchema, undefined, f);
+
+export const getMediaStatus = (c: EngineConfig, f?: typeof fetch) =>
+  call<MediaStatusResponse>(c, "GET", "/project/media-status", MediaStatusResponseSchema, undefined, f);
+
+export const getExport = (c: EngineConfig, f?: typeof fetch) =>
+  call<ExportState>(c, "GET", "/project/export", ExportStateSchema, undefined, f);
+
+export const startExport = (c: EngineConfig, f?: typeof fetch) =>
+  call<ExportState>(c, "POST", "/project/export", ExportStateSchema, {}, f);
+
+export const cancelExport = (c: EngineConfig, f?: typeof fetch) =>
+  call<ExportState>(c, "POST", "/project/export/cancel", ExportStateSchema, {}, f);

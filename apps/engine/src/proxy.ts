@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import { rename, rm } from "node:fs/promises";
 import type { ProxyState, Rational } from "@ve/schema";
+import { runFfmpeg } from "./ffmpegRun.js";
 
 export type ProxyJob = {
   assetId: string;
@@ -46,33 +46,12 @@ export function proxyArgs(job: Pick<ProxyJob, "source" | "fps" | "hasAudio">, ou
 }
 
 export const runFfmpegProxy: ProxyRunner = (input) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(input.ffmpegPath, proxyArgs(input, input.outFile), {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      signal: input.signal,
-    });
-    let buffer = "";
-    let errorTail = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const m = /^out_time_(?:us|ms)=(\d+)/.exec(line.trim());
-        // Both keys are reported in microseconds by ffmpeg.
-        if (m && input.durationSeconds > 0) {
-          input.onProgress(Math.min(1, Number(m[1]) / 1e6 / input.durationSeconds));
-        }
-      }
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      errorTail = (errorTail + chunk.toString()).slice(-600);
-    });
-    child.on("error", (e) => reject(e));
-    child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(errorTail.trim().split("\n").pop() || `ffmpeg exited with ${code}`)),
-    );
+  runFfmpeg({
+    ffmpegPath: input.ffmpegPath,
+    args: proxyArgs(input, input.outFile),
+    durationSeconds: input.durationSeconds,
+    signal: input.signal,
+    onProgress: input.onProgress,
   });
 
 /** Generates proxies one at a time and reports progress to subscribers. */

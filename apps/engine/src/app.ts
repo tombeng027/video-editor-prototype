@@ -6,6 +6,8 @@ import { TOKEN_HEADER, TOKEN_QUERY, type ApiError, type HealthResponse } from "@
 import type { EngineConfig } from "./config.js";
 import { defaultProbes, type Probes } from "./probes.js";
 import { Importer, type ProbeFn } from "./importer.js";
+import { Exporter, type DurationProbe, type ExportRunner } from "./exporter.js";
+import { registerExportRoutes } from "./exportRoutes.js";
 import { registerMediaRoutes } from "./mediaRoutes.js";
 import { ProxyManager, type ProxyRunner } from "./proxy.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
@@ -24,7 +26,7 @@ const apiError = (code: string, message: string): ApiError => ({ error: { code, 
 export async function buildApp(
   config: EngineConfig,
   probes: Probes = defaultProbes,
-  overrides: { proxyRunner?: ProxyRunner; probe?: ProbeFn } = {},
+  overrides: { proxyRunner?: ProxyRunner; probe?: ProbeFn; exportRunner?: ExportRunner; probeDuration?: DurationProbe } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -63,15 +65,24 @@ export async function buildApp(
   const session = new ProjectSession(recent);
   const proxies = new ProxyManager(config.ffmpegPath, overrides.proxyRunner);
   const importer = new Importer(session, proxies, config, overrides.probe);
+  const exporter = new Exporter(session, config, overrides.exportRunner, overrides.probeDuration);
   registerProjectRoutes(app, session, recent, {
     onOpened: async () => {
       proxies.reset();
+      exporter.reset();
       await importer.resumeProxies();
     },
-    onClosed: () => proxies.reset(),
+    onClosed: () => {
+      proxies.reset();
+      exporter.reset();
+    },
   });
   registerMediaRoutes(app, session, importer, proxies);
-  app.addHook("onClose", async () => proxies.reset());
+  registerExportRoutes(app, session, exporter);
+  app.addHook("onClose", async () => {
+    proxies.reset();
+    exporter.reset();
+  });
 
   return app;
 }

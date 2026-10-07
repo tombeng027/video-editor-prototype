@@ -45,6 +45,15 @@ Preview and final rendering are separate systems with different goals: preview i
 - **Job behaviour:** progress reporting from FFmpeg output, cancellation, and a typed failure reason.
 - **Output:** written to the project's `exports/` folder.
 
+### Implemented in M2 Slice C
+
+- **Render plan:** `buildRenderPlan` (timeline-core) flattens the timeline into clip and gap segments using the same rule as the preview: at each frame the highest-order non-audio track wins. Audio-track clips are not rendered, matching the preview.
+- **FFmpeg command:** one `-ss/-t/-i` input per clip segment from the original file, each scaled and padded to the project size (rounded to even numbers), run through `fps` and an exact frame trim, and joined with `concat`. Gaps are black video and silence; assets without audio get silence. Output is libx264 (`-crf 20`, `medium`), AAC 192k stereo, `+faststart`.
+- **Safe output:** written to `exports/<name>-<timestamp>.mp4.part`, then ffprobe checks the duration (within 2 frames or 0.1 s) before it is renamed. A failed, cancelled or mismatching export leaves no partial file.
+- **Engine API:** `POST /project/export` (202), `GET /project/export` (polled by the client), `POST /project/export/cancel`, `GET /project/media-status`. One export at a time.
+- **Refusals (422):** `EMPTY_TIMELINE`, `OFFLINE_MEDIA` (names the files), `TOO_MANY_CUTS`, `MISSING_ASSET`.
+- **Limits:** no compositing of overlapping tracks yet, and many cuts hit the Windows command-line limit (see L8 in the backlog).
+
 ## Candidate preview rendering
 
 Candidates (see [Jump-Cut Pipeline](./07-jump-cut-pipeline.md)) store only an edit list.

@@ -87,3 +87,17 @@ export type ProxyState = z.infer<typeof ProxyStateSchema>;
 
 export const ProxyListResponseSchema = z.object({ proxies: z.array(ProxyStateSchema) });
 export type ProxyListResponse = z.infer<typeof ProxyListResponseSchema>;
+export const OfflineAssetSchema = z.object({ assetId: z.string(), name: z.string(), path: z.string() });
+export type OfflineAsset = z.infer<typeof OfflineAssetSchema>;
+
+export const MediaStatusResponseSchema = z.object({ offline: z.array(OfflineAssetSchema) });
+export type MediaStatusResponse = z.infer<typeof MediaStatusResponseSchema>;
+
+export const ExportStateSchema = z.object({
+  state: z.enum(["idle", "running", "done", "failed", "cancelled"]),
+  percent: z.number().min(0).max(100),
+  outputPath: z.string().optional(),
+  code: z.string().optional(),
+  message: z.string().optional(),
+});
+export type ExportState = z.infer<typeof ExportStateSchema>;

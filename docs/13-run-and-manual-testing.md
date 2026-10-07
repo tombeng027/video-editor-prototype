@@ -131,10 +131,13 @@ Mark each as Pass, Fail or N/A with the date and build (`git rev-parse --short H
 - [ ] Zoom in and out keeps the playhead and clips aligned.
 - [ ] Close and reopen the project: the clips are still there.
 
-### M2 Slice C: export (when built)
+### M2 Slice C: export
 - [ ] Save, close, reopen: the timeline is identical.
 - [ ] Export an MP4 with progress; cancel works; the duration matches the timeline.
-- [ ] A missing source file blocks export with a clear list (K7).
+- [ ] A missing source file blocks export with a clear list (K7): rename the source, refocus the window; the asset shows Offline, clips turn red, Export is disabled.
+- [ ] Split a clip and delete the middle piece: the exported file has a black gap with silence and the right total length.
+- [ ] The top bar shows Saving…, then Autosaved after each edit.
+- [ ] Files appear in the project's exports/ folder; no .part file remains after cancel or failure.
 
 ## Recording a bug
 

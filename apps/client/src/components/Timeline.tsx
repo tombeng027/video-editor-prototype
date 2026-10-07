@@ -10,6 +10,7 @@ type Props = {
   project: Project;
   clock: PlayheadClock;
   selectedClipId: string | null;
+  offline: ReadonlySet<string>;
   message: string | null;
   onSelect: (clipId: string | null) => void;
   onSplit: () => void;
@@ -29,7 +30,7 @@ function Timecode({ clock, project }: { clock: PlayheadClock; project: Project }
   return <span className="timecode" ref={ref} aria-label="Playhead time" />;
 }
 
-export function Timeline({ project, clock, selectedClipId, message, onSelect, onSplit, onDelete }: Props) {
+export function Timeline({ project, clock, selectedClipId, offline, message, onSelect, onSplit, onDelete }: Props) {
   const fps = project.settings.fps;
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const { playing, rate } = useClockState(clock);
@@ -117,9 +118,9 @@ export function Timeline({ project, clock, selectedClipId, message, onSelect, on
                   <div
                     key={clip.id}
                     data-clip-id={clip.id}
-                    className={`tl-clip${clip.id === selectedClipId ? " selected" : ""}`}
+                    className={`tl-clip${clip.id === selectedClipId ? " selected" : ""}${offline.has(clip.assetId) ? " offline" : ""}`}
                     style={{ left: framesToPx(clip.timelineStart, fps, zoom), width: framesToPx(clipEnd(clip) - clip.timelineStart, fps, zoom) }}
-                    title={asset?.name}
+                    title={offline.has(clip.assetId) ? `${asset?.name ?? "Media"} (offline)` : asset?.name}
                   >
                     {asset?.name ?? "Missing media"}
                   </div>
