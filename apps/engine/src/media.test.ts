@@ -20,6 +20,12 @@ const hasFfmpeg = (() => {
   }
 })();
 
+if (!hasFfmpeg) {
+  const msg = "ffmpeg/ffprobe not found on PATH: real-FFmpeg tests are SKIPPED (open a fresh terminal after installing FFmpeg).";
+  if (process.env.CI) throw new Error(msg);
+  console.warn(`\n[media.test] ${msg}\n`);
+}
+
 describe("probe interpretation", () => {
   const videoStream = { codec_type: "video", avg_frame_rate: "30000/1001", width: 1280, height: 720, duration: "2.002" };
 

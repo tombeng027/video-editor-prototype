@@ -24,10 +24,31 @@ Small problems seen while running the app. We keep watching for these and fix th
 
 | # | Issue | Impact | Plan | Status |
 |---|---|---|---|---|
-| K1 | An engine started from a shell whose PATH predates the FFmpeg install reports FFmpeg as unavailable (found in a stale `pnpm start`). | Dev only; a fresh shell or the Electron app is fine. | Add an FFmpeg path setting (`FFMPEG_PATH` exists) and show a clear "restart your terminal" hint in diagnostics when FFmpeg is missing. | Open |
-| K2 | The "Frame rate" select and the "use first video's frame rate" checkbox share a label, so the name is ambiguous for screen readers and test selectors. | Accessibility and testing; no functional effect. | Reword the checkbox label ("Match the first imported video"). | Fixed |
-| K4 | Real-FFmpeg tests are skipped when FFmpeg is not on PATH, so a stale shell reports green with fewer tests run. CI does not install FFmpeg yet, so it skips them too. | Hidden loss of coverage. | CI now installs FFmpeg (to be confirmed on the next GitHub run). Still to do: print a skip notice locally. | Partly done |
-| K3 | The native folder picker was only checked through the bridge, not by clicking it. | Low. | Check manually once; add an IPC test seam if it breaks. | Open |
+| K1 | An engine started from a shell whose PATH predates the FFmpeg install reports FFmpeg as unavailable. | Dev only; a fresh shell or the Electron app is fine. | Show a "restart your terminal or set `FFMPEG_PATH`" hint in diagnostics when FFmpeg is missing. | Open |
+| K2 | The "Frame rate" select and the "use first video's frame rate" checkbox shared a label. | Accessibility and testing. | Reworded the checkbox label. | Fixed |
+| K3 | The native folder and media pickers were only checked through the bridge, not by clicking them. | Low. | Check manually once; add an IPC test seam if it breaks. | Open |
+| K4 | Real-FFmpeg tests are skipped when FFmpeg is not on PATH, so a stale shell reports green with fewer tests run. | Hidden loss of coverage. | CI installs FFmpeg (confirmed: CI run 4 passed with the install step). Tests now print a skip warning locally and fail in CI if FFmpeg is missing. | Fixed |
+| K5 | A stale engine from an earlier session can keep port 7878, so a new engine fails with `EADDRINUSE` while the old one answers requests. | Confusing dev failures; wasted time during the Slice B live test. | Print the port owner hint on `EADDRINUSE`; consider a random free port when launched by Electron (already the case) and a clear message in dev. | Open |
+| K6 | The proxy can be one frame shorter than the asset's computed duration (179 vs 180 frames). | The preview could show a frozen or black last frame. | Clamp preview time to the proxy's real duration (build into Slice B step 2). | Open, scheduled |
+| K7 | Media is not verified when a project opens, so a moved or deleted source file is only discovered when it is used. | A missing file would break preview and export with an unclear error. | On open, check each asset path and flag missing ones as "offline" in the assets pane; export refuses with a clear list. | Open, scheduled before export |
+| K8 | In copy mode the file is copied before the command batch is committed; if the batch fails, an orphan copy stays in `media/`. | Wasted disk only. | Delete the copy if the batch fails. | Open |
+| K9 | A proxy that finishes after its asset was removed fails `SetAssetProxy` with `NOT_FOUND` and shows as failed. | Harmless noise. | Treat `NOT_FOUND` as "cancelled". | Open |
+| K10 | No project schema migration path yet. | None until the schema changes after projects exist. | Add a version check and migration hook before the first schema change to saved data. | Open, watch |
+
+## Triage
+
+Tiers follow common QA terms. Tier 1 blocks forward work, Tier 2 must be done before the milestone that depends on it, Tier 3 is scheduled cleanup, Tier 4 is fix-if-cheap or accept.
+
+| Tier | Meaning | Items |
+|---|---|---|
+| Tier 1: Blocker | Stop and fix now | None |
+| Tier 2: Major | Fix inside the slice that depends on it | K6 (Slice B step 2, preview), K7 (before Slice C export) |
+| Tier 3: Moderate | Schedule soon; no user-visible risk today | K1, K5 (dev experience), K8, L4 (default token), L5 (`/health` cost), K10 (before first schema change) |
+| Tier 4: Minor | Fix if cheap, or accept for the prototype | K3, K9, L3 (drag-and-drop), L6 (component tests; revisit once the timeline UI lands), L7 |
+| Planned | Already on the roadmap | L2 (packaging, after M2) |
+| Resolved | Done | K2, K4, L1 |
+
+Decision: nothing needs to be fixed before Slice B step 2. K6 is built into it, and K7 is done before export.
 ## Platform
 - **Mobile as remote editor:** the client connects to a PC engine over LAN with token auth, using a stacked responsive layout and touch interactions.
 - **Standalone on-device editing:** run `timeline-core` on-device with a native media backend; consider a Capacitor or Tauri wrapper. The pure command layer and shared schema are designed for this.
