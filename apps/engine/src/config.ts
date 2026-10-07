@@ -1,0 +1,32 @@
+export type EngineConfig = {
+  host: string;
+  port: number;
+  token: string;
+  allowedOrigins: string[];
+  ffmpegPath: string;
+  ollamaUrl: string;
+  visionUrl: string;
+  version: string;
+};
+
+const DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
+  const port = Number(env.ENGINE_PORT ?? 7878);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid ENGINE_PORT: ${env.ENGINE_PORT}`);
+  }
+  return {
+    // Loopback only; LAN access is a future opt-in.
+    host: "127.0.0.1",
+    port,
+    token: env.ENGINE_TOKEN || "dev-token",
+    allowedOrigins: env.ENGINE_ALLOWED_ORIGINS
+      ? env.ENGINE_ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+      : DEFAULT_ORIGINS,
+    ffmpegPath: env.FFMPEG_PATH || "ffmpeg",
+    ollamaUrl: env.OLLAMA_URL || "http://127.0.0.1:11434",
+    visionUrl: env.VISION_URL || "http://127.0.0.1:7879",
+    version: "0.1.0",
+  };
+}
