@@ -33,6 +33,7 @@ describe("engine launch", () => {
       ELECTRON_RUN_AS_NODE: "1",
       ENGINE_PORT: "4000",
       ENGINE_TOKEN: "t",
+      ENGINE_EXIT_WHEN_PARENT_GONE: "1",
       ENGINE_ALLOWED_ORIGINS: "http://127.0.0.1:5173",
     });
     expect(l.args[0]).toBe("--import");

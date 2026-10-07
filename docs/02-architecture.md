@@ -66,6 +66,7 @@ video-editor/
 - The **client** holds the live project state and runs the shared `timeline-core` reducer, so edits feel instant and undo/redo is local.
 - Each committed command is sent to the **engine**, which applies the same reducer to its own copy, autosaves it, and uses it to validate AI proposals. The engine copy is the source for what is written to `project.json`.
 - On reconnect or open, the client loads the full project from the engine. If the copies diverge (the engine rejects a command), the client reloads the engine's state and tells the user.
+- **Current implementation (M2 Slice A):** the engine owns the single open project and applies every command batch (`POST /project/commands`), autosaving after each one and returning the new project plus the inverse commands. The client does not apply commands locally yet; optimistic local application arrives with the timeline in Slice B.
 - Commands triggered by AI confirmations (such as `InsertSequence`) are dispatched by the client like any manual command.
 
 ## Media tools
@@ -76,7 +77,8 @@ video-editor/
 ## Desktop shell rules
 
 - Electron runs with `contextIsolation` on and `nodeIntegration` off. The preload script exposes a minimal API: open/save dialogs, resolve dropped file paths, and engine status.
-- The shell starts the engine on a local port with a per-session token and stops it on quit. The client talks to the engine over HTTP/WebSocket exactly as it would in a browser, so the client never depends on Electron APIs for editing.
+- The shell starts the engine on a free local port with a per-session token and stops it on quit. The engine's stdin is a pipe held open by the shell (`ENGINE_EXIT_WHEN_PARENT_GONE=1`); when the shell dies, even from a force-kill, the pipe closes and the engine exits instead of being orphaned. The client talks to the engine over HTTP/WebSocket exactly as it would in a browser, so the client never depends on Electron APIs for editing.
+- Native dialogs go through a single IPC channel per dialog. The main process only answers callers whose frame origin matches the client origin. Current preload API: `engine` (url and token) and `pickFolder(title)`. A video picker is added with import in Slice B.
 - Electron is chosen because the engine is Node/TypeScript and can be bundled directly. The thin-shell rule keeps a later move to Tauri or Capacitor open.
 
 ## Process management

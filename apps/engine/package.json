@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "@ve/engine",
   "version": "0.1.0",
   "private": true,
@@ -11,7 +11,9 @@
   "dependencies": {
     "@fastify/cors": "^11.3.0",
     "@ve/schema": "workspace:*",
-    "fastify": "^5.12.5"
+    "@ve/timeline-core": "workspace:*",
+    "fastify": "^5.12.5",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

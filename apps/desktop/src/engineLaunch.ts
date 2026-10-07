@@ -42,6 +42,7 @@ export function buildEngineLaunch(opts: {
       ELECTRON_RUN_AS_NODE: "1",
       ENGINE_PORT: String(opts.port),
       ENGINE_TOKEN: opts.token,
+      ENGINE_EXIT_WHEN_PARENT_GONE: "1",
       ENGINE_ALLOWED_ORIGINS: clientOrigin(opts.clientUrl),
     },
   };

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { encodeEngineArg } from "./engineArg.js";
 import {
   buildEngineLaunch,
@@ -9,6 +9,7 @@ import {
   getFreePort,
   waitForEngine,
 } from "./engineLaunch.js";
+import { IPC_PICK_FOLDER, isTrustedSender, sanitizeTitle } from "./ipc.js";
 
 const CLIENT_URL = process.env.VE_CLIENT_URL ?? "http://127.0.0.1:5173";
 let engine: ChildProcess | undefined;
@@ -32,7 +33,8 @@ async function startEngine() {
   engine = spawn(launch.command, launch.args, {
     cwd: launch.cwd,
     env: launch.env,
-    stdio: ["ignore", "inherit", "inherit"],
+    // stdin stays open so the engine can detect this process dying (see engine parentWatch).
+    stdio: ["pipe", "inherit", "inherit"],
     windowsHide: true,
   });
   engine.once("exit", (code) => {
@@ -43,6 +45,17 @@ async function startEngine() {
   await waitForEngine(info);
   return info;
 }
+
+ipcMain.handle(IPC_PICK_FOLDER, async (event, title: unknown) => {
+  if (!isTrustedSender(event.senderFrame?.url, CLIENT_URL)) return null;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const options = {
+    title: sanitizeTitle(title, "Choose a folder"),
+    properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[],
+  };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
 
 async function createWindow() {
   const info = await startEngine();

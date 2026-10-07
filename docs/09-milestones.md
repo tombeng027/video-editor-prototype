@@ -25,6 +25,11 @@ Acceptance is split into three parts:
 
 **Done when:** a user can import, split, save, close, reopen and export a correct file.
 
+**Progress:**
+- Slice A (project folder, atomic save/open with backup recovery, recent projects, folder dialog, new-project form with frame rate and resolution, engine parent-exit watchdog): complete.
+- Slice B (import, proxies, preview, split UI): next.
+- Slice C (export): after B.
+
 ## M3 - Timeline usability
 - Multiple tracks, move, trim, snapping, remove.
 - Undo and redo with gesture coalescing.

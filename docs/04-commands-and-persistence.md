@@ -49,9 +49,21 @@ MyProject/
 ```
 
 - `project.json` is written atomically (write to temp, then rename) to avoid corruption.
-- **Autosave:** debounced after each committed command; a manual Save is also available.
-- **Recent projects:** the landing screen reads a small app-level index of recent project folders.
-- **Open:** load, validate with Zod, migrate if `schemaVersion` is older, then verify media.
+- **Autosave:** the engine writes `project.json` after every committed command batch. A rejected batch changes and saves nothing. Each save keeps the previous version as `project.json.bak`.
+- **Recent projects:** the engine keeps a small index (`recent.json`, newest first, capped at 10) in its data directory (`ENGINE_DATA_DIR`, default `~/.video-editor-prototype`). Entries whose folder has gone are shown as "not found".
+- **Open:** load, validate with Zod, then fall back to `project.json.bak` if the main file is unreadable (the UI warns when this happens). Schema migration and media verification are still to do.
+
+### Project API (engine)
+
+| Route | Purpose |
+|---|---|
+| `POST /project/create` | Create the folder layout and an empty project. The folder must not already hold a project (`ALREADY_EXISTS`). |
+| `POST /project/open` | Open a project folder (`NOT_FOUND`, `CORRUPT`). |
+| `POST /project/commands` | Apply a command batch atomically, autosave, return `{project, inverse}`. Invalid batches return 422 with a command error code. |
+| `POST /project/save` / `POST /project/close` | Manual save, and close the open project. |
+| `GET /project` / `GET /projects/recent` | Current project, and the recent list. |
+
+Folder paths must be absolute. All routes need the session token.
 
 ## Import modes
 

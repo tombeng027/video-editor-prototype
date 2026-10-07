@@ -1,4 +1,9 @@
+import os from "node:os";
+import path from "node:path";
+
 export type EngineConfig = {
+  dataDir: string;
+  exitWhenParentGone: boolean;
   host: string;
   port: number;
   token: string;
@@ -20,6 +25,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
     // Loopback only; LAN access is a future opt-in.
     host: "127.0.0.1",
     port,
+    dataDir: env.ENGINE_DATA_DIR || path.join(os.homedir(), ".video-editor-prototype"),
+    exitWhenParentGone: env.ENGINE_EXIT_WHEN_PARENT_GONE === "1",
     token: env.ENGINE_TOKEN || "dev-token",
     allowedOrigins: env.ENGINE_ALLOWED_ORIGINS
       ? env.ENGINE_ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)

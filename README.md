@@ -6,7 +6,7 @@ A CapCut-inspired desktop video editor prototype with a local Ollama AI assistan
 
 ## Status
 
-Milestone 1 (foundation) is complete. Next: M2 (import, proxies, save/open, export).
+Milestone 1 (foundation) is complete. M2 is in progress: project create/save/open is done; import, proxies, preview and export are next.
 
 - `@ve/schema` and `@ve/timeline-core`: command reducer with undo.
 - `apps/engine`: Fastify with token and Origin auth, `/health` probes.

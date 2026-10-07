@@ -53,3 +53,15 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--unknown); }
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--bad); }
+
+.error { color: var(--bad); margin: 0; }
+.recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.recent button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; }
+.modal { background: var(--pane); border: 1px solid var(--border); border-radius: 8px; padding: 20px; width: min(460px, 92vw); display: flex; flex-direction: column; gap: 12px; }
+.modal label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.modal label.check { flex-direction: row; align-items: center; gap: 8px; }
+.modal .row { display: flex; gap: 8px; }
+.modal .row input { flex: 1; }
+.modal input:not([type="checkbox"]), .modal select { background: #12151a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font: inherit; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; }

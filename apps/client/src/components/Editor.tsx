@@ -5,9 +5,9 @@ import type { HealthResult } from "../engine.js";
 import { Splitter } from "./Splitter.js";
 import { StatusArea } from "./StatusArea.js";
 
-type Props = { project: Project; health: HealthResult | null; onClose: () => void };
+type Props = { project: Project; folder: string; health: HealthResult | null; onClose: () => void };
 
-export function Editor({ project, health, onClose }: Props) {
+export function Editor({ project, folder, health, onClose }: Props) {
   const [sizes, setSizes] = useState<PaneSizes>(() => loadSizes(localStorage));
   const dragStart = useRef<PaneSizes>(sizes);
 
@@ -27,7 +27,7 @@ export function Editor({ project, health, onClose }: Props) {
       <header className="topbar">
         <button onClick={onClose}>← Projects</button>
         <strong>{project.name}</strong>
-        <span className="muted">Not saved (prototype)</span>
+        <span className="muted" title={folder}>Autosaved</span>
         <span className="spacer" />
         <button disabled title="Available in M3">Undo</button>
         <button disabled title="Available in M3">Redo</button>

@@ -1,9 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
+import path from "node:path";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { TOKEN_HEADER, TOKEN_QUERY, type ApiError, type HealthResponse } from "@ve/schema";
 import type { EngineConfig } from "./config.js";
 import { defaultProbes, type Probes } from "./probes.js";
+import { registerProjectRoutes } from "./projectRoutes.js";
+import { RecentProjects } from "./recent.js";
+import { ProjectSession } from "./session.js";
 
 function tokensMatch(expected: string, provided: unknown): boolean {
   if (typeof provided !== "string") return false;
@@ -50,6 +54,9 @@ export async function buildApp(
       components: [{ name: "engine", status: "ok" }, ...components],
     };
   });
+
+  const recent = new RecentProjects(path.join(config.dataDir, "recent.json"));
+  registerProjectRoutes(app, new ProjectSession(recent), recent);
 
   return app;
 }
