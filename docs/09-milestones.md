@@ -15,6 +15,8 @@ Each milestone should leave the app in a working state.
 
 **Done when:** client talks to the engine with the token, the layout resizes, and schema and `timeline-core` tests pass.
 
+**Status: complete.** The vision stub serves `/health` on Python 3.12 (pinned `>=3.11,<3.13`, since the machine's Python 3.14 is likely too new for torch and CLIP wheels) and the engine reports it as `ok`.
+
 ## M2 - Manual vertical slice
 Acceptance is split into three parts:
 - **Import and proxy:** import a video, probe metadata, generate a proxy, show progress and errors.

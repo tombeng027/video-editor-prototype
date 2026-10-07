@@ -4,6 +4,20 @@
 
 Not part of the prototype. Listed so the architecture does not block them.
 
+## Known limitations backlog
+
+Found while building M1. None blocks the prototype.
+
+| # | Limitation | Plan |
+|---|---|---|
+| L1 | Engine cleanup on a force-killed shell. Verified on Windows (engine exits with the shell) but not on macOS or Linux | Add a stdin-close watchdog in the engine at the start of M2, when it begins owning FFmpeg children |
+| L2 | The desktop shell needs the Vite dev server running; no packaged build | Packaging milestone after M2 |
+| L3 | No native file dialogs or drag-and-drop paths | M2 import work |
+| L4 | Engine falls back to the token `dev-token` if `ENGINE_TOKEN` is unset | Refuse the default outside dev mode |
+| L5 | `/health` spawns FFmpeg on every call | Cache the probe result for a short TTL |
+| L6 | No React component tests and no tests for the Electron `main.ts` | Add Testing Library tests as UI logic grows |
+| L7 | No Host-header validation (DNS-rebinding hardening) | Optional; the token already blocks this |
+
 ## Platform
 - **Mobile as remote editor:** the client connects to a PC engine over LAN with token auth, using a stacked responsive layout and touch interactions.
 - **Standalone on-device editing:** run `timeline-core` on-device with a native media backend; consider a Capacitor or Tauri wrapper. The pure command layer and shared schema are designed for this.
