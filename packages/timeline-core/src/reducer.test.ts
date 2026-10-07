@@ -234,8 +234,23 @@ describe("RemoveClip, RemoveAsset, RemoveTrack", () => {
   });
 });
 
-describe("purity", () => {
-  it("does not mutate the input project", () => {
+describe("SetAssetProxy", () => {
+  it("sets the proxy path and undoes it", () => {
+    const p = setup();
+    const res = must(applyCommand(p, { type: "SetAssetProxy", assetId: "asset_v", proxyPath: "proxies/asset_v.mp4" }));
+    expect(res.project.assets.find((a) => a.id === "asset_v")?.proxyPath).toBe("proxies/asset_v.mp4");
+    expect(must(applyCommands(res.project, res.inverse)).project).toEqual(p);
+  });
+
+  it("reports a missing asset", () => {
+    expect(applyCommand(setup(), { type: "SetAssetProxy", assetId: "nope", proxyPath: null })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+  });
+});
+
+describe("purity", () => {  it("does not mutate the input project", () => {
     const p = setup();
     const snapshot = (JSON.parse(JSON.stringify(p)) as Project);
     must(add(p, "t_video", clip("c1", 0, 0, 100)));

@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "@ve/schema";
+import type { EngineConfig } from "../engine.js";
+import { getProject } from "../projectApi.js";
+import { useProxyStatus } from "../useProxyStatus.js";
+import { AssetsPane } from "./AssetsPane.js";
 import { DEFAULT_SIZES, clampSize, loadSizes, saveSizes, type PaneSizes } from "../layout.js";
 import type { HealthResult } from "../engine.js";
 import { Splitter } from "./Splitter.js";
 import { StatusArea } from "./StatusArea.js";
 
-type Props = { project: Project; folder: string; health: HealthResult | null; onClose: () => void };
+type Props = { config: EngineConfig; project: Project; folder: string; health: HealthResult | null; onClose: () => void };
 
-export function Editor({ project, folder, health, onClose }: Props) {
+export function Editor({ config, project: initialProject, folder, health, onClose }: Props) {
+  const [project, setProject] = useState(initialProject);
+  const proxyStates = useProxyStatus(config, () => {
+    void getProject(config).then((r) => r.ok && setProject(r.data.project));
+  });
   const [sizes, setSizes] = useState<PaneSizes>(() => loadSizes(localStorage));
   const dragStart = useRef<PaneSizes>(sizes);
 
@@ -40,10 +48,7 @@ export function Editor({ project, folder, health, onClose }: Props) {
 
       <div className="workspace">
         <div className="upper" style={{ gridTemplateColumns: `${assetsWidth}px 6px 1fr ${assistantOpen ? `6px ${assistantWidth}px` : ""}` }}>
-          <section className="pane" aria-label="Assets">
-            <h2>Assets</h2>
-            <p className="placeholder">Imported media will appear here (M2).</p>
-          </section>
+          <AssetsPane config={config} project={project} proxyStates={proxyStates} onProject={setProject} />
           <Splitter
             orientation="vertical"
             label="Resize assets pane"

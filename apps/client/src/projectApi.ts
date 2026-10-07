@@ -1,11 +1,14 @@
 import {
   CommandsResponseSchema,
+  ImportResponseSchema,
   ProjectResponseSchema,
   RecentProjectsResponseSchema,
   TOKEN_HEADER,
   type Command,
   type CommandsResponse,
   type CreateProjectRequest,
+  type ImportRequest,
+  type ImportResponse,
   type ProjectResponse,
   type RecentProject,
 } from "@ve/schema";
@@ -61,3 +64,9 @@ export async function listRecent(c: EngineConfig, f?: typeof fetch): Promise<Rec
 export async function closeProject(c: EngineConfig, f?: typeof fetch): Promise<void> {
   await call(c, "POST", "/project/close", z.object({ ok: z.boolean() }), {}, f);
 }
+
+export const importFiles = (c: EngineConfig, req: ImportRequest, f?: typeof fetch) =>
+  call<ImportResponse>(c, "POST", "/project/import", ImportResponseSchema, req, f);
+
+export const getProject = (c: EngineConfig, f?: typeof fetch) =>
+  call<ProjectResponse>(c, "GET", "/project", ProjectResponseSchema, undefined, f);

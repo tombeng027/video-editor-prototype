@@ -64,3 +64,26 @@ export type RecentProject = z.infer<typeof RecentProjectSchema>;
 
 export const RecentProjectsResponseSchema = z.object({ projects: z.array(RecentProjectSchema) });
 export type RecentProjectsResponse = z.infer<typeof RecentProjectsResponseSchema>;
+export const ImportRequestSchema = z.object({
+  paths: z.array(z.string().min(1)).min(1).max(50),
+  mode: z.enum(["reference", "copy"]),
+});
+export type ImportRequest = z.infer<typeof ImportRequestSchema>;
+
+export const ImportResponseSchema = z.object({
+  project: ProjectSchema,
+  imported: z.array(z.object({ assetId: z.string(), name: z.string() })),
+  failed: z.array(z.object({ path: z.string(), code: z.string(), message: z.string() })),
+});
+export type ImportResponse = z.infer<typeof ImportResponseSchema>;
+
+export const ProxyStateSchema = z.object({
+  assetId: z.string(),
+  state: z.enum(["queued", "running", "done", "failed"]),
+  percent: z.number().min(0).max(100),
+  message: z.string().optional(),
+});
+export type ProxyState = z.infer<typeof ProxyStateSchema>;
+
+export const ProxyListResponseSchema = z.object({ proxies: z.array(ProxyStateSchema) });
+export type ProxyListResponse = z.infer<typeof ProxyListResponseSchema>;

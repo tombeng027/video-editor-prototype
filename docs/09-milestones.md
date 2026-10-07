@@ -27,7 +27,8 @@ Acceptance is split into three parts:
 
 **Progress:**
 - Slice A (project folder, atomic save/open with backup recovery, recent projects, folder dialog, new-project form with frame rate and resolution, engine parent-exit watchdog): complete.
-- Slice B (import, proxies, preview, split UI): next.
+- Slice B step 1 (ffprobe import by reference or copy, duplicate detection, 540p CFR proxies with progress, range-served media, assets pane, media picker): complete.
+- Slice B step 2 (timeline, shared playhead clock, `<video>` preview, add clip and split in the UI): next.
 - Slice C (export): after B.
 
 ## M3 - Timeline usability

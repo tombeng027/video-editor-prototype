@@ -62,8 +62,19 @@ MyProject/
 | `POST /project/commands` | Apply a command batch atomically, autosave, return `{project, inverse}`. Invalid batches return 422 with a command error code. |
 | `POST /project/save` / `POST /project/close` | Manual save, and close the open project. |
 | `GET /project` / `GET /projects/recent` | Current project, and the recent list. |
+| `POST /project/import` | Import files by reference or copy. Body: `{paths, mode}`. Probes each file with ffprobe, rejects duplicates (quick content hash) and unsupported files per file without failing the batch, adds the assets in one command batch and queues proxies. Returns `{project, imported, failed}`. |
+| `GET /project/proxies` / `GET /project/events` | Proxy progress as a list, and as server-sent events (`event: proxy`). The token goes in the `?token=` query. |
+| `GET /media/:assetId/proxy` | Serves the proxy with HTTP range support (206/416), for `<video>` seeking. |
 
-Folder paths must be absolute. All routes need the session token.
+Folder and file paths must be absolute. All routes need the session token.
+
+### Import details (implemented)
+
+- **Media kinds:** video and audio. Images are rejected for now.
+- **Frame counts:** video durations are native frames at the file's own frame rate (`avg_frame_rate`, reduced rational). Audio uses a 1000/1 millisecond timebase.
+- **Paths:** reference mode stores the absolute path. Copy mode copies into `media/` (name collisions get `-1`, `-2`) and stores a project-relative path, so a copied project can be moved.
+- **Frame rate:** if the project was created with 'match the first imported video' and has no assets or clips, the first imported video's frame rate is applied with `SetProjectFps` in the same batch.
+- **Proxy path:** `SetAssetProxy` records `proxies/<assetId>.mp4` once the file exists. It is a normal command, so it is autosaved. Proxies missing on open (deleted, or interrupted) are regenerated automatically.
 
 ## Import modes
 

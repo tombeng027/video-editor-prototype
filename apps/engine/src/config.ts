@@ -9,10 +9,18 @@ export type EngineConfig = {
   token: string;
   allowedOrigins: string[];
   ffmpegPath: string;
+  ffprobePath: string;
   ollamaUrl: string;
   visionUrl: string;
   version: string;
 };
+
+/** Finds ffprobe next to a configured ffmpeg binary, else relies on PATH. */
+function siblingTool(ffmpegPath: string | undefined, tool: string): string {
+  if (!ffmpegPath) return tool;
+  const ext = path.extname(ffmpegPath);
+  return path.join(path.dirname(ffmpegPath), tool + ext);
+}
 
 const DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 
@@ -32,6 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
       ? env.ENGINE_ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
       : DEFAULT_ORIGINS,
     ffmpegPath: env.FFMPEG_PATH || "ffmpeg",
+    ffprobePath: env.FFPROBE_PATH || siblingTool(env.FFMPEG_PATH, "ffprobe"),
     ollamaUrl: env.OLLAMA_URL || "http://127.0.0.1:11434",
     visionUrl: env.VISION_URL || "http://127.0.0.1:7879",
     version: "0.1.0",

@@ -5,6 +5,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("SetProjectFps"), fps: RationalSchema }),
   z.object({ type: z.literal("AddAsset"), asset: AssetSchema }),
   z.object({ type: z.literal("RemoveAsset"), assetId: z.string() }),
+  z.object({ type: z.literal("SetAssetProxy"), assetId: z.string(), proxyPath: z.string().nullable() }),
   z.object({ type: z.literal("AddTrack"), track: TrackSchema }),
   z.object({ type: z.literal("RemoveTrack"), trackId: z.string() }),
   z.object({ type: z.literal("AddClip"), trackId: z.string(), clip: ClipSchema }),

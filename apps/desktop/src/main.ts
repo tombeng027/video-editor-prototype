@@ -9,7 +9,7 @@ import {
   getFreePort,
   waitForEngine,
 } from "./engineLaunch.js";
-import { IPC_PICK_FOLDER, isTrustedSender, sanitizeTitle } from "./ipc.js";
+import { IPC_PICK_FOLDER, IPC_PICK_MEDIA, MEDIA_EXTENSIONS, isTrustedSender, sanitizeTitle } from "./ipc.js";
 
 const CLIENT_URL = process.env.VE_CLIENT_URL ?? "http://127.0.0.1:5173";
 let engine: ChildProcess | undefined;
@@ -55,6 +55,18 @@ ipcMain.handle(IPC_PICK_FOLDER, async (event, title: unknown) => {
   };
   const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
   return result.canceled ? null : (result.filePaths[0] ?? null);
+});
+
+ipcMain.handle(IPC_PICK_MEDIA, async (event, title: unknown) => {
+  if (!isTrustedSender(event.senderFrame?.url, CLIENT_URL)) return [];
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const options = {
+    title: sanitizeTitle(title, "Import media"),
+    properties: ["openFile", "multiSelections"] as ("openFile" | "multiSelections")[],
+    filters: [{ name: "Video and audio", extensions: MEDIA_EXTENSIONS }, { name: "All files", extensions: ["*"] }],
+  };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? [] : result.filePaths;
 });
 
 async function createWindow() {

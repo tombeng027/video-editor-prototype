@@ -65,3 +65,13 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .modal .row input { flex: 1; }
 .modal input:not([type="checkbox"]), .modal select { background: #12151a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font: inherit; }
 .modal .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pane .row { display: flex; gap: 8px; }
+.pane .row input { flex: 1; min-width: 0; background: #12151a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font: inherit; }
+.pane label.check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin: 8px 0; }
+.assets { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.assets li { display: flex; flex-direction: column; gap: 2px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.assets strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 11px; }
+.badge.ok { color: var(--ok, #4caf7d); }
+.badge.busy { color: var(--muted); }
+.badge.error { color: var(--bad); }

@@ -12,7 +12,7 @@ Found while building M1. None blocks the prototype.
 |---|---|---|
 | L1 | ~~Engine cleanup on a force-killed shell~~ | **Resolved in M2 Slice A:** stdin-close watchdog (`ENGINE_EXIT_WHEN_PARENT_GONE`), verified by force-killing the shell on Windows |
 | L2 | The desktop shell needs the Vite dev server running; no packaged build | Packaging milestone after M2 |
-| L3 | No native file dialogs or drag-and-drop paths | Folder picker done in Slice A; video picker and drag-and-drop come with import in Slice B |
+| L3 | No native file dialogs or drag-and-drop paths | Folder picker (Slice A) and media picker (Slice B) done; drag-and-drop paths still to do |
 | L4 | Engine falls back to the token `dev-token` if `ENGINE_TOKEN` is unset | Refuse the default outside dev mode |
 | L5 | `/health` spawns FFmpeg on every call | Cache the probe result for a short TTL |
 | L6 | No React component tests and no tests for the Electron `main.ts` | Add Testing Library tests as UI logic grows |
@@ -26,6 +26,7 @@ Small problems seen while running the app. We keep watching for these and fix th
 |---|---|---|---|---|
 | K1 | An engine started from a shell whose PATH predates the FFmpeg install reports FFmpeg as unavailable (found in a stale `pnpm start`). | Dev only; a fresh shell or the Electron app is fine. | Add an FFmpeg path setting (`FFMPEG_PATH` exists) and show a clear "restart your terminal" hint in diagnostics when FFmpeg is missing. | Open |
 | K2 | The "Frame rate" select and the "use first video's frame rate" checkbox share a label, so the name is ambiguous for screen readers and test selectors. | Accessibility and testing; no functional effect. | Reword the checkbox label ("Match the first imported video"). | Fixed |
+| K4 | Real-FFmpeg tests are skipped when FFmpeg is not on PATH, so a stale shell reports green with fewer tests run. CI does not install FFmpeg yet, so it skips them too. | Hidden loss of coverage. | CI now installs FFmpeg (to be confirmed on the next GitHub run). Still to do: print a skip notice locally. | Partly done |
 | K3 | The native folder picker was only checked through the bridge, not by clicking it. | Low. | Check manually once; add an IPC test seam if it breaks. | Open |
 ## Platform
 - **Mobile as remote editor:** the client connects to a PC engine over LAN with token auth, using a stacked responsive layout and touch interactions.

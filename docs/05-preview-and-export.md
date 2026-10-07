@@ -15,6 +15,12 @@ Preview and final rendering are separate systems with different goals: preview i
 - **Indicators:** UI shows "proxy" quality and a loading state while a proxy is generating.
 - **Codec fallback:** the original file is only used as a fallback while the proxy generates if Chromium can decode it (for example H.264). Otherwise the clip shows "preparing preview" until the proxy is ready.
 
+### Proxy format (implemented)
+
+- H.264 (`libx264 -preset veryfast -crf 28`), yuv420p, never upscaled above 540p, constant frame rate equal to the source rate, keyframe every 15 frames, AAC stereo 96 kbps, `+faststart`.
+- Generated one at a time in the engine, written to a `.part` file and renamed when finished, with progress parsed from FFmpeg's `-progress` output and pushed to the client as server-sent events.
+- The proxy can end up one frame shorter than the asset's computed frame count (rounding at the tail). The preview must clamp to the proxy's real duration.
+
 ### Known preview limits (accepted for prototype)
 
 - Frame-exact sync across multiple simultaneous video elements is not guaranteed.

@@ -24,10 +24,13 @@ function sendFailure(reply: FastifyReply, error: unknown) {
   throw error;
 }
 
+export type ProjectHooks = { onOpened: () => Promise<void>; onClosed: () => void };
+
 export function registerProjectRoutes(
   app: FastifyInstance,
   session: ProjectSession,
   recent: RecentProjects,
+  hooks: ProjectHooks,
 ) {
   const invalid = (reply: FastifyReply, message: string) =>
     reply.code(400).send(apiError("INVALID_REQUEST", message));
@@ -43,7 +46,9 @@ export function registerProjectRoutes(
     const parsed = CreateProjectRequestSchema.safeParse(req.body);
     if (!parsed.success) return invalid(reply, "Invalid project settings.");
     try {
-      return await session.create(parsed.data);
+      const created = await session.create(parsed.data);
+      await hooks.onOpened();
+      return created;
     } catch (e) {
       return sendFailure(reply, e);
     }
@@ -53,7 +58,9 @@ export function registerProjectRoutes(
     const parsed = OpenProjectRequestSchema.safeParse(req.body);
     if (!parsed.success) return invalid(reply, "A project folder is required.");
     try {
-      return await session.openFolder(parsed.data.folder);
+      const opened = await session.openFolder(parsed.data.folder);
+      await hooks.onOpened();
+      return opened;
     } catch (e) {
       return sendFailure(reply, e);
     }
@@ -82,6 +89,7 @@ export function registerProjectRoutes(
 
   app.post("/project/close", async () => {
     await session.close();
+    hooks.onClosed();
     return { ok: true };
   });
 }

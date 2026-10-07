@@ -18,6 +18,7 @@ export function App() {
   if (!opened) return <Landing config={config} health={health} onOpened={setOpened} />;
   return (
     <Editor
+      config={config}
       project={opened.project}
       folder={opened.folder}
       health={health}

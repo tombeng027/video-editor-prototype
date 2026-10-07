@@ -98,6 +98,19 @@ export function applyCommand(project: Project, command: Command): CommandResult 
       };
     }
 
+    case "SetAssetProxy": {
+      const asset = project.assets.find((a) => a.id === command.assetId);
+      if (!asset) return fail("NOT_FOUND", "Asset not found.");
+      return {
+        ok: true,
+        project: {
+          ...project,
+          assets: project.assets.map((a) => (a.id === asset.id ? { ...a, proxyPath: command.proxyPath } : a)),
+        },
+        inverse: [{ type: "SetAssetProxy", assetId: asset.id, proxyPath: asset.proxyPath }],
+      };
+    }
+
     case "RemoveAsset": {
       const asset = project.assets.find((a) => a.id === command.assetId);
       if (!asset) return fail("NOT_FOUND", "Asset not found.");
