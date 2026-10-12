@@ -19,7 +19,10 @@ First time only:
 
 ```powershell
 pnpm install
+pnpm --filter @ve/desktop setup:electron
 ```
+
+Electron 44 exposes an explicit binary installer rather than an automatic package-install hook. Run `setup:electron` after the first dependency install or an Electron upgrade; it checks the installed version and reuses a matching binary. A successful `pnpm install` alone does not prove desktop readiness. Installer failures are nonzero and must be resolved before launching; startup does not download dependencies.
 
 ## Quick start (daily use)
 
@@ -57,7 +60,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-launcher.ps1
 
 This briefly opens the app and checks startup, duplicate refusal, port conflicts, process identity checks, owned shutdown, and preservation of an existing Ollama-compatible service. It creates synthetic test servers when needed, does not run AI models, and never stops an existing Ollama. Do not run while using the app.
 
-It also checks readiness timeout, early process exit, and rollback after failed desktop startup. A separate suite lock prevents simultaneous test runs. The Windows CI job runs these checks; desktop availability on the hosted runner is verified by the test itself.
+It also checks missing dependency recovery instructions, readiness timeout, early process exit, and rollback after failed desktop startup. An unexpected child exit includes the last stdout/stderr lines in the test failure. A separate suite lock prevents simultaneous test runs. The Windows CI job explicitly installs the Electron binary before these checks; desktop availability on the hosted runner is verified by the test itself.
 
 To additionally test real launcher-owned Ollama startup/shutdown, install Ollama, leave port 11434 free, unset `OLLAMA_URL`/`OLLAMA_HOST`, and run:
 
@@ -80,7 +83,7 @@ Launcher failures print `[CODE]`, a brief explanation, the log directory, and th
 | `STATE_INVALID` | Process-state JSON has invalid structure or identities | Close this app's processes manually; rename the reported state file, then retry; do not guess ownership or delete active state |
 | `CONFIG_INVALID` | Unsupported quick-start URL or relative executable path | Use absolute executable paths or PATH command names; use the manual launch flow for a custom client URL |
 | `TOOL_MISSING` | A required executable cannot be found | Verify PATH, `FFMPEG_PATH`, and `FFPROBE_PATH`; open a new terminal after installation |
-| `DEPENDENCIES_MISSING` | Local Vite/Electron dependencies are missing | Run `pnpm install` in the app folder |
+| `DEPENDENCIES_MISSING` | The required Vite entry or Electron executable is missing; the message names the path | Run `pnpm install` in the app folder; for Electron also run `pnpm --filter @ve/desktop setup:electron`, then retry |
 | `BUILD_FAILED` | Desktop compilation failed before startup | Read the terminal build errors; fix them before retrying |
 | `OLLAMA_UNREACHABLE` | Configured existing Ollama endpoint did not respond | Start the configured service manually, check its URL, or omit `-Ollama` for manual editing |
 | `STARTUP_EXITED` | A launched process exited before readiness | Read the corresponding client/desktop/Ollama logs; verify configuration |

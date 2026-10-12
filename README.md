@@ -20,6 +20,8 @@ Known limitations are tracked in [docs/10-future-features.md](./docs/10-future-f
 
 Review workflow, subsystem status and acceptance gates: [Review Plan and System Status](./docs/16-review-plan-and-system-status.md). Project/job ownership and persistence integrity are verified locally; M3 expansion remains gated on UI/error recovery and diagnostics stabilization.
 
+Before an approved fix, compare QA evidence and acceptance criteria with the engineering assessment using [QA and Fix Readiness](./docs/17-qa-and-fix-readiness.md).
+
 See [docs/README.md](./docs/README.md) for the full documentation index, architecture and milestones.
 
 ## Development
@@ -28,10 +30,13 @@ Requires Node 22+ and pnpm.
 
 ```
 pnpm install
+pnpm --filter @ve/desktop setup:electron
 pnpm test
 pnpm typecheck
 pnpm lint
 ```
+
+The desktop setup command explicitly installs the Electron binary. Run it on first setup and after Electron upgrades; dependency installation alone does not provision it.
 
 ### Vision service
 

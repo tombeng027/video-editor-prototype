@@ -4,6 +4,8 @@
 
 This is the reusable starting point for system reviews, not a claim that every path is tested. Use it with [Milestones](./09-milestones.md), the authoritative issue IDs in [Known issues](./10-future-features.md), and the [Run guide](./13-run-and-manual-testing.md). Do not maintain competing issue lists here.
 
+For issue diagnosis and before implementing an approved fix, use [QA and Fix Readiness](./17-qa-and-fix-readiness.md): compare QA acceptance conditions with the engineering cause/fix assessment, investigate factual disagreements, and escalate unresolved product or risk decisions to the user.
+
 ## Product contract
 
 - Windows-first, local desktop editing: create, import, edit, preview, save, reopen and export reliably.
@@ -20,14 +22,16 @@ This is the reusable starting point for system reviews, not a claim that every p
 2. **Select the scope and specialist lens.** For a slice, inspect changed surfaces and their callers, jobs, persistence and UI consumers. Use the matching specialist notes below to explain the context and reasoning. At milestone gates, cover every subsystem row below. Follow asynchronous operations across their entire lifetime, not just their success route.
 3. **Check the contract.** Compare code, UI, schemas and docs. Label target designs explicitly. API/schema support is not proof of a working UI feature.
 4. **Exercise failure boundaries.** Concurrent starts/edits, switch/close/reopen during work, cancellation at each await, process exit, malformed data, missing files, permissions, disk pressure and lost API/event connections. Bind jobs to a project identity/generation, not merely whichever project is currently open.
-5. **Collect evidence.** Reuse existing tests first. For findings, record source links, impact, conditions, priority and whether reproduced or source-confirmed. Separate future design risks from present bugs. Use synthetic media/isolated folders; leave user projects and unrelated processes untouched.
+5. **Collect evidence.** Reuse existing tests first. For findings, apply the QA assessment in [QA and Fix Readiness](./17-qa-and-fix-readiness.md): record expected/actual behavior, source links, impact, conditions, severity separately from priority, confidence and whether reproduced or source-confirmed. Separate future design risks from present bugs. Use synthetic media/isolated folders; leave user projects and unrelated processes untouched.
 6. **Validate the exact requirement.** Test thresholds and result shapes, not just a green command. UI/accessibility claims need component or manual evidence. A helper test does not prove dialog focus or click behavior.
 7. **Update records.** Add/update issue IDs in the backlog, refresh this matrix and evidence ledger, and correct directly affected status statements. Mark a fix verified only after its regression passes. List deferred checks explicitly.
-8. **Make the gate decision.** State proceed/hold, next bounded slice and acceptance criteria. Do not expand scope automatically or turn review findings into runtime fixes without agreeing the work.
+8. **Make the gate decision.** State proceed/hold, next bounded slice and acceptance criteria. Before editing, reconcile the QA and engineering assessments using [QA and Fix Readiness](./17-qa-and-fix-readiness.md). Agreement permits work only within approved scope; unresolved behavior/data/compatibility decisions require user input. Do not expand scope automatically or turn review findings into runtime fixes without agreeing the work.
 
 ### Finding record
 
 Use: `ID | priority | surface / specialist lens | failure condition and user impact | reasoning / violated contract | source/reproduction | next action | verification needed | status`.
+
+This is the compact backlog summary. Use the [QA and engineering assessment template](./17-qa-and-fix-readiness.md#reusable-assessment-template) for the supporting diagnosis, severity, acceptance conditions and pre-fix decision; the backlog format and existing issue IDs remain unchanged.
 
 - **P1:** data integrity, wrong project/job ownership, broken core export lifecycle; fix before expanding editing.
 - **P2:** misleading/silent failures or blocked workflows; fix in stabilization or before the dependent feature.
@@ -84,7 +88,7 @@ Snapshot: **2026-10-12, Windows local working tree**. "Implemented" means capabi
 | S08 UI/accessibility/layout | Landing/editor, native pickers, persistent resizable panes, assistant placeholder, save status and export dialog | [Landing](../apps/client/src/components/Landing.tsx), [Dialog](../apps/client/src/components/ExportDialog.tsx), [Layout](../apps/client/src/layout.ts), [CSS](../apps/client/src/styles.css) | Gate background shortcuts and contain/restore focus (K17). Expose export API failures (K18). Clamp layout to actual window size (K28); verify pickers (K3). No Settings, drag/drop, search, frame-step or caption UI. | Stabilization; UI tests before M3 |
 | S09 Engine/API/diagnostics | Loopback service, typed lifecycle/store/recent failures and successful project warnings, token/Origin checks and health probes | [App](../apps/engine/src/app.ts), [API client](../apps/client/src/projectApi.ts), [Config](../apps/engine/src/config.ts) | No unified unexpected-error code/logging pipeline (K26); no general API timeout (K24). Recent-list errors now reach landing instead of false empty success; other silent paths remain. Cache health probes (L5); dev-token behavior is L4. Not a dedicated vulnerability audit. | Error-observability slice; before distribution |
 | S10 Electron/process lifecycle | Dynamic engine port/token, isolated preload, native dialogs, engine parent-exit watchdog | [Desktop](../apps/desktop/src/main.ts), [Launch helpers](../apps/desktop/src/engineLaunch.ts), [Watchdog](../apps/engine/src/parentWatch.ts) | Check actual engine exit/startup dialogs and close with jobs active. Helper/launcher tests do not cover all renderer, picker or navigation interactions (L6/K3). Other desktop platforms unverified. | Desktop acceptance; packaging only when needed |
-| S11 Windows launcher | Readiness, owned PID/time/tree cleanup, rollback, locks and suite isolation | [Common](../scripts/launcher-common.ps1), [Start](../scripts/start-app.ps1), [Stop](../scripts/stop-app.ps1), [Tests](../scripts/test-launcher.ps1) | K15/K20 pass locally. Preserve unrelated services; refused starts and failed stops must be visible. Hosted Windows runner and real launcher-owned Ollama remain unverified. | Hosted CI after an approved commit/push |
+| S11 Windows launcher | Readiness, owned PID/time/tree cleanup, rollback, locks, suite isolation and explicit Electron setup | [Common](../scripts/launcher-common.ps1), [Start](../scripts/start-app.ps1), [Stop](../scripts/stop-app.ps1), [Tests](../scripts/test-launcher.ps1) | Hosted Windows startup failed on missing Electron binary (K34); explicit setup, recovery hints and diagnostic regressions now pass locally and in hosted run 38198160629. K15/K20 launcher regressions pass there too. Preserve unrelated services; real launcher-owned Ollama remains unverified. | Setup/hosted gate passed; preserve regressions |
 | S12 Retention/storage warnings | Per-session logs, JSON age/soft-budget policy, protected sessions, terminal warnings and manual dry run | [Policy](../scripts/log-retention.ps1), [Safety tests](../scripts/test-log-retention.ps1), [Cleanup](../scripts/cleanup-logs.ps1) | K21 remains partial: no in-app warnings/timer/controls. Failures after partial deletion need accurate results/retry metadata (K29). Disk warning covers log drive, not all project/export drives. Legacy logs count but are not deleted. | Finish CLI error semantics; then UI integration |
 | S13 AI/vision | Ollama/vision health probes; Python health stub only | [Assistant design](./06-ai-assistant.md), [Pipeline design](./07-jump-cut-pipeline.md), [Vision stub](../apps/vision/app/main.py) | No chat/action tools, CLIP, inference jobs or evaluations. M4 guidance cannot mutate; M5 proposals require validation; M6 needs labelled clips, cancellation, candidates and measured timing. | M4-M6 only after manual workflow gate |
 | S14 Docs/quality/distribution | Indexed docs, isolated media/export fixtures, Vitest, lint/typecheck, Linux JS/vision CI and Windows checks | [CI](../.github/workflows/ci.yml), [Test strategy](./12-testing-and-settings.md), [Marketing](./14-content-and-marketing.md) | K33 verified locally with settled teardown and removal assertions; no sweep of prior temp folders. No component/Electron editing-flow automation or installer. Preserve an approved Git baseline; unpushed changes are not hosted-CI verified. | Each slice and release claim |
@@ -203,6 +207,44 @@ User authorized a quick review, commits and push of the accumulated stabilizatio
 - Gate: proceed with a reviewed prototype baseline on `main`, not M3 expansion or an installable release. Hosted CI is pending at this gate; actual push/check outcomes are confirmed separately from local tests.
 - Earlier entries describing local/uncommitted work are historical evidence from those review/fix turns, not a permanent claim about the latest Git state.
 
+## QA/engineering fix assessment: K34, 2026-10-12
+
+First application of [QA and Fix Readiness](./17-qa-and-fix-readiness.md). Scope: clean desktop provisioning and the directly coupled missing-dependency/test diagnostics. Baseline `6a83f2e`; the new QA reference was already a local documentation change. No editing features, dependency versions, saved-project fields or process ownership semantics changed.
+
+### QA evidence and acceptance
+
+- **Expected:** documented first-time setup prepares the desktop; Windows CI can launch the owned client/window, verify the engine and stop owned processes. Missing dependencies produce an actionable code and recovery path.
+- **Actual:** [hosted run 38197224023](https://github.com/tombeng027/video-editor-prototype/actions/runs/38197224023) passed JS and vision but failed launcher startup (`start-app` returned 1). Its uploaded diagnostic artifact records `DEPENDENCIES_MISSING` at the dependency preflight. Repeating the old `pnpm install` hint does not install the binary.
+- **Reproduction:** an isolated workspace with pnpm 12.9.1 and pinned Electron 44.5.1 successfully installed the package without `dist/electron.exe`; running its explicit installer then provisioned version 44.5.1. No existing workspace binary was removed to reproduce this.
+- **Impact:** clean Windows setups cannot launch. QA severity **High**, priority **P2** with a clean-setup/hosted gate; no demonstrated user-data loss. Workaround: `pnpm --filter @ve/desktop setup:electron` after dependency installation.
+- **Confidence:** high for the missing provisioning step: hosted artifact, package metadata and isolated reproduction agree. Corrected hosted desktop acceptance subsequently passed in run 38198160629, not inferred from local success.
+
+### Engineering cause and pre-fix reconciliation
+
+Electron 44.5.1's package has no automatic install lifecycle script; it exposes `install-electron`. Allowing Electron build scripts does not invoke a nonexistent hook. An already-installed local binary masked the omission. The fix adds a named desktop setup script, calls it explicitly in Windows CI and updates first-time setup instructions. Startup validates exact dependency files but never silently installs them. The shared preflight helper provides the same missing-file decision for startup and isolated regression fixtures.
+
+The test runner also previously reduced an unexpected child failure to an exit-code assertion. It now includes bounded child stdout/stderr so the underlying coded reason is visible without first downloading the artifact.
+
+| QA acceptance condition | Engineering correction / validation | Agreement and result |
+|---|---|---|
+| Clean installation produces a usable Electron executable | Explicit package-provided installer; isolated pinned-version reproduction/install | Agreed; executable/version checked locally, repeat installer succeeds |
+| Already-provisioned setup remains supported | Installer checks the existing version; repository setup and desktop typecheck | Agreed; local setup succeeds without dependency version or lockfile changes |
+| Missing dependency has an actionable stable failure | Shared preflight distinguishes Vite from Electron and names the recovery command | Agreed; owned missing-file fixtures pass with DEPENDENCIES_MISSING |
+| Failed integration test exposes the actual child reason | Bounded stderr/stdout included on mismatched exit | Agreed; intentional TESTS_RUNNING mismatch includes the child code |
+| Ownership, readiness, rollback and unrelated services remain safe | Existing full launcher integration and retention suites | Agreed; both pass locally; owned processes stop and existing Ollama survives |
+| Windows hosted acceptance actually executes | Windows CI installer step precedes launcher tests | Agreed; approved runtime commit 3e89be1 passed hosted launcher and retention checks |
+
+**Pre-fix gate: proceed.** User authorized investigation/assessment/fix; QA and engineering agree on contract and scope. No product-policy decision or data migration is needed. Installation failures remain nonzero; readiness/ownership checks are not relaxed. Restoring the previous source version alone would reintroduce the missing setup step, so retain the documented installer workaround if reverting.
+
+### Post-fix QA and limits
+
+- Passed: isolated clean-install reproduction and explicit installer, repeat invocation, repository `pnpm install --frozen-lockfile`, desktop setup/typecheck, lint and PowerShell parser checks.
+- Passed: full launcher integration including four new dependency/diagnostic assertions, then retention safety checks. Expected synthetic denial/locked-file/configuration warnings remain explicit.
+- Teardown verified: dependency fixtures removed, client listener stopped, owned desktop/engine stopped, existing Ollama preserved. No user project/media modified.
+- At the local gate K34 was **verified locally** only; no fresh local full Vitest/Python run was claimed for this setup-only change. Real owned-Ollama and other desktop platforms remain unverified.
+- User then authorized commit/push and hosted verification. Runtime commit `3e89be1` was pushed without rewriting history; [corrected hosted run 38198160629](https://github.com/tombeng027/video-editor-prototype/actions/runs/38198160629) passed **launcher, JS and vision**. K34 is now **verified in hosted CI**, and the clean-setup/hosted gate passes. Documentation/reference changes are recorded separately; this evidence identifies the tested runtime commit.
+- The original failed run remains useful evidence: a green local baseline did not prove clean-hosted readiness. Neither the passing retention suite nor this setup fix closes K29's partial-cleanup semantics.
+
 ### Current open-issue inventory and priority order
 
 Issue descriptions/status remain authoritative in the backlog. There are **17 open/partial K entries** and **7 unresolved/deferred L entries**; multiple rows below share a fix slice, not duplicate implementation work.
@@ -218,11 +260,11 @@ Issue descriptions/status remain authoritative in the backlog. There are **17 op
 | 6 - scheduled maintenance/design hardening | K1, K3, K5, K9; L3, L4, L5, L7 | Manual PATH/port recovery, real picker acceptance, removed-asset proxy semantics, deferred drag/drop, non-dev token policy, cached health probes and a separately scoped hardening review before distribution. No exploitability conclusion is made here. |
 | Conditional distribution | L2 | Package only when feedback needs installable builds; license/model/binary and platform acceptance gates first. |
 
-Locally resolved K entries: K2, K4, K6, K7, K8, K11, K14, K15, K16, K20, K22, K23, K25, K27, K31, K33. Resolved limitation: L1. K7's missing-media reporting is implemented, but K19 still covers the export policy mismatch; K14's save-status UI exists, but K12/K24 cover broader state/error races. Hosted verification remains pending.
+Locally resolved K entries: K2, K4, K6, K7, K8, K11, K14, K15, K16, K20, K22, K23, K25, K27, K31, K33, K34. Resolved limitation: L1. K7's missing-media reporting is implemented, but K19 still covers the export policy mismatch; K14's save-status UI exists, but K12/K24 cover broader state/error races. There are 34 K entries: 17 locally resolved and 17 open/partial. Hosted JS/vision and corrected Windows checks passed for runtime commit 3e89be1; manual acceptance limits remain explicit.
 
 Features that are not bugs: M3 Undo/Redo UI, gestures, snapping, relink and track management; M4 chat; M5 proposals; M6 vision/candidates; Settings, independent audio/compositing, captions, mobile and GPU upgrades. Keep them as roadmap work, not "missing fixes" that endlessly block stabilization.
 
-**Next bounded implementation recommendation:** shared modal/input policy (K17/K30): honest in-flight creation semantics and focus/background shortcut isolation with targeted component tests. Follow with export polling/cancel recovery and used-media consistency (K18/K19), then remaining K24/K26 observability and diagnostics. Do not restart the same broad review without a concrete new question.
+**Next bounded implementation recommendation:** K34's approved publication and hosted setup gate passed. Shared modal/input policy (K17/K30) remains next: honest in-flight creation semantics and focus/background shortcut isolation with targeted component tests. Follow with export polling/cancel recovery and used-media consistency (K18/K19), then remaining K24/K26 observability and diagnostics. Do not restart the same broad review without a concrete new question.
 
 ## Priority and next acceptance gates
 

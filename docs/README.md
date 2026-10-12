@@ -30,6 +30,7 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 | 14 | [Content and Marketing](./14-content-and-marketing.md) | Positioning, demo plan, sponsor package, claims checklist |
 | 15 | [Captions Concept](./15-captions-concept.md) | Future feature: auto-captions with a separate caption timeline (design note, not scheduled) |
 | 16 | [Review Plan and System Status](./16-review-plan-and-system-status.md) | Subsystem matrix, specialist review perspectives, evidence, findings and acceptance gates |
+| 17 | [QA and Fix Readiness](./17-qa-and-fix-readiness.md) | QA issue assessment, engineering pre-fix review, reconciliation and post-fix acceptance |
 
 ## Key decisions at a glance
 

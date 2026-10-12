@@ -88,7 +88,7 @@ video-editor/
 
 ## Tooling
 
-- **JavaScript:** pnpm with workspaces manages the monorepo (`apps/*`, `packages/*`), so `packages/schema` and `packages/timeline-core` are shared without publishing. Setup: `pnpm install`.
+- **JavaScript:** pnpm with workspaces manages the monorepo (`apps/*`, `packages/*`), so `packages/schema` and `packages/timeline-core` are shared without publishing. Setup: `pnpm install`, then `pnpm --filter @ve/desktop setup:electron` to provision the desktop binary explicitly.
 - **Python:** `uv` creates the venv and installs locked dependencies from `pyproject.toml` for the vision service. Setup: `uv sync` in `apps/vision`.
 
 ## Cross-cutting rules
