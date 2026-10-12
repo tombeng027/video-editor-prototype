@@ -57,14 +57,17 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .error { color: var(--bad); margin: 0; }
 .recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .recent button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; }
-.modal { background: var(--pane); border: 1px solid var(--border); border-radius: 8px; padding: 20px; width: min(460px, 92vw); display: flex; flex-direction: column; gap: 12px; }
+.modal::backdrop { background: rgba(0, 0, 0, 0.55); }
+.modal { background: var(--panel, #1d2026); color: var(--text); border: 1px solid #3a3f4a; border-radius: 8px; padding: 16px 20px; width: min(520px, 90vw); display: flex; flex-direction: column; gap: 10px; }
+.modal:not([open]) { display: none; }
 .modal label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .modal label.check { flex-direction: row; align-items: center; gap: 8px; }
 .modal .row { display: flex; gap: 8px; }
 .modal .row input { flex: 1; }
 .modal input:not([type="checkbox"]), .modal select { background: #12151a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font: inherit; }
 .modal .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-form, .modal fieldset { display: flex; flex-direction: column; gap: 12px; }
+.modal fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .pane .row { display: flex; gap: 8px; }
 .pane .row input { flex: 1; min-width: 0; background: #12151a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font: inherit; }
 .pane label.check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin: 8px 0; }
@@ -93,11 +96,9 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .tl-empty { padding: 12px; }
 .tl-clip { position: absolute; top: 4px; bottom: 4px; background: #2f5fb3; border: 1px solid #5b8def; border-radius: 4px; padding: 4px 6px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tl-clip.selected { background: #3b72d6; border-color: #fff; }
-.tl-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-left: 2px solid #ff5a5f; pointer-events: none; z-index: 2; }.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 10; }
-.modal { background: var(--panel, #1d2026); border: 1px solid #3a3f4a; border-radius: 8px; padding: 16px 20px; width: min(520px, 90vw); display: flex; flex-direction: column; gap: 10px; }
+.tl-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-left: 2px solid #ff5a5f; pointer-events: none; z-index: 2; }
 .modal progress { width: 100%; }
-.modal-actions { justify-content: flex-end; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .modal code { word-break: break-all; }
 .badge.offline { color: var(--bad); }
 .tl-clip.offline { background: #5a2b2b; border-color: #c55; border-style: dashed; }
-.modal-actions { display: flex; gap: 8px; }

@@ -3,20 +3,27 @@ import type { ExportState } from "@ve/schema";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig } from "../engine.js";
 import { cancelExport, getExport, startExport } from "../projectApi.js";
+import { Modal } from "./Modal.js";
 
 type Props = { config: EngineConfig; onClose: () => void };
 
 export function ExportDialog({ config, onClose }: Props) {
   const [state, setState] = useState<ExportState>({ state: "idle", percent: 0 });
   const [error, setError] = useState<string | null>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const [starting, setStarting] = useState(false);
+  const pendingStart = useRef(false);
   const bridge = getBridge();
 
   const start = useCallback(async () => {
+    if (pendingStart.current) return;
+    pendingStart.current = true;
+    setStarting(true);
     setError(null);
     const result = await startExport(config);
     if (result.ok) setState(result.data);
     else setError(result.message);
+    pendingStart.current = false;
+    setStarting(false);
   }, [config]);
 
   useEffect(() => {
@@ -27,19 +34,18 @@ export function ExportDialog({ config, onClose }: Props) {
     return () => clearInterval(timer);
   }, [config, state.state]);
 
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
-
   const running = state.state === "running";
+  const close = () => {
+    if (!pendingStart.current && !running) onClose();
+  };
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Export video" onKeyDown={(e) => e.key === "Escape" && !running && onClose()}>
+    <Modal label="Export video" dismissible={!running && !starting} onClose={close}>
         <h2>Export video</h2>
         <p className="muted">Renders the whole timeline to an MP4 (H.264 + AAC) from your original media, at the project's size and frame rate.</p>
 
-        {state.state === "idle" && !error && <p>Ready to export into the project's exports folder.</p>}
+        {starting && <p role="status">Starting export... Please wait.</p>}
+        {state.state === "idle" && !error && !starting && <p>Ready to export into the project's exports folder.</p>}
         {running && (
           <>
             <progress value={state.percent} max={100} aria-label="Export progress" />
@@ -63,12 +69,11 @@ export function ExportDialog({ config, onClose }: Props) {
               {state.state === "done" && state.outputPath && bridge?.revealInFolder && (
                 <button onClick={() => void bridge.revealInFolder?.(state.outputPath!)}>Show in folder</button>
               )}
-              <button onClick={() => void start()}>{state.state === "idle" && !error ? "Start export" : "Export again"}</button>
-              <button ref={closeRef} onClick={onClose}>Close</button>
+              <button disabled={starting} onClick={() => void start()}>{state.state === "idle" && !error ? "Start export" : "Export again"}</button>
+              <button disabled={starting} data-modal-initial-focus onClick={close}>Close</button>
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

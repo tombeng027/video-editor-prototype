@@ -78,6 +78,7 @@ export function Editor({ config, project: initialProject, folder, health, warnin
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (exportOpen || e.defaultPrevented) return;
       const action = resolveShortcut(e, (e.target as HTMLElement).tagName);
       if (action === "toggle-play") {
         e.preventDefault();
@@ -87,7 +88,7 @@ export function Editor({ config, project: initialProject, folder, health, warnin
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [clock, split, remove]);
+  }, [clock, split, remove, exportOpen]);
 
   const [sizes, setSizes] = useState<PaneSizes>(() => loadSizes(localStorage));
   const dragStart = useRef<PaneSizes>(sizes);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProjectResponse, RecentProject } from "@ve/schema";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig, HealthResult } from "../engine.js";
@@ -18,6 +18,7 @@ export function Landing({ config, health, onOpened }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [recentError, setRecentError] = useState<string | null>(null);
+  const pending = useRef(false);
   const pickFolder = getBridge()?.pickFolder;
   const engineReady = health?.state === "ok";
 
@@ -33,6 +34,7 @@ export function Landing({ config, health, onOpened }: Props) {
 
   const finish = (result: ApiResult<ProjectResponse>) => {
     setBusy(false);
+    pending.current = false;
     if (!result.ok) return setMessage(`[${result.code}] ${result.message}`);
     if (result.data.recoveredFromBackup) {
       window.alert("The project file was damaged, so the last backup was loaded instead.");
@@ -41,24 +43,39 @@ export function Landing({ config, health, onOpened }: Props) {
   };
 
   const open = async (folder: string) => {
+    if (pending.current || creating) return;
+    pending.current = true;
     setBusy(true);
     setMessage(null);
     finish(await openProject(config, folder));
   };
 
   const browseAndOpen = async () => {
-    const folder = pickFolder ? await pickFolder("Open project folder") : window.prompt("Project folder path");
-    if (folder) await open(folder);
+    if (pending.current || creating) return;
+    pending.current = true;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const folder = pickFolder ? await pickFolder("Open project folder") : window.prompt("Project folder path");
+      if (folder) finish(await openProject(config, folder));
+      else { pending.current = false; setBusy(false); }
+    } catch (error) {
+      pending.current = false;
+      setBusy(false);
+      setMessage(`[FOLDER_PICK_FAILED] ${error instanceof Error ? error.message : "Could not choose a folder."} Retry Open project.`);
+    }
   };
 
   return (
     <main className="landing">
       <h1>Video Editor Prototype</h1>
       <div className="actions">
-        <button className="primary" disabled={!engineReady || busy} onClick={() => setCreating(true)}>
+        <button className="primary" disabled={!engineReady || busy} onClick={() => {
+          if (!pending.current && !creating) setCreating(true);
+        }}>
           Create new project
         </button>
-        <button disabled={!engineReady || busy} onClick={() => void browseAndOpen()}>
+        <button disabled={!engineReady || busy || creating} onClick={() => void browseAndOpen()}>
           Open project…
         </button>
       </div>
@@ -73,7 +90,7 @@ export function Landing({ config, health, onOpened }: Props) {
           <ul className="recent">
             {recent.map((p) => (
               <li key={p.folder}>
-                <button disabled={!p.exists || busy} onClick={() => void open(p.folder)}>
+                <button disabled={!engineReady || !p.exists || busy || creating} onClick={() => void open(p.folder)}>
                   <strong>{p.name}</strong>
                   <span className="muted">{p.exists ? p.folder : `${p.folder} (not found)`}</span>
                 </button>
