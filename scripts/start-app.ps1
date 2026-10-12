@@ -41,11 +41,9 @@ try {
     try { $null = Get-Command $tool -ErrorAction Stop }
     catch { Fail-Launcher "TOOL_MISSING" "Cannot find $tool. Check PATH or the configured executable path." }
   }
-  $vite = Join-Path $root "apps\client\node_modules\vite\bin\vite.js"
-  $electron = Join-Path $root "apps\desktop\node_modules\electron\dist\electron.exe"
-  if (-not (Test-Path $vite) -or -not (Test-Path $electron)) {
-    Fail-Launcher "DEPENDENCIES_MISSING" "Dependencies are missing. Run pnpm install in $root."
-  }
+  $dependencies = Get-LauncherDependencies
+  $vite = $dependencies.vite
+  $electron = $dependencies.electron
   Push-Location $root
   try {
     & pnpm --filter @ve/desktop build

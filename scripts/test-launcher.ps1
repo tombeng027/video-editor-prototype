@@ -33,6 +33,7 @@ if ($OwnedOllama) {
   throw
 } finally { $setupMutex.ReleaseMutex(); $setupMutex.Dispose() }
 $fixture = Join-Path $logs "test-server.cjs"
+$dependencyFixture = Join-Path $logs ("test-dependencies-" + [guid]::NewGuid().ToString("N"))
 $sentinel = $null
 $ollamaFixture = $null
 $createdOllamaFixture = $false
@@ -68,14 +69,42 @@ function Run-Launcher([string]$name, [int]$expected, [switch]$WithOllama) {
     $script:testOwned += @($captured.desktop, $captured.client)
     if ($OwnedOllama) { $script:testOwned += $captured.ollama }
   }
-  Assert-True ($run.ExitCode -eq $expected) "$name exits $expected (actual: $($run.ExitCode))"
+  if ($run.ExitCode -ne $expected) {
+    $details = @("log", "err") | ForEach-Object {
+      "$name.$_`n" + ((Get-Content -LiteralPath "$logs\test-$name.$_" -Tail 20) -join "`n")
+    }
+    throw "FAIL: $name exits $expected (actual: $($run.ExitCode)). Child diagnostics:`n$($details -join "`n")"
+  }
+  Assert-True $true "$name exits $expected (actual: $($run.ExitCode))"
 }
 try {
+  New-Item -ItemType Directory -Path $dependencyFixture | Out-Null
+  $missing = $null
+  try { $null = Get-LauncherDependencies $dependencyFixture } catch { $missing = $_ }
+  Assert-True ($missing -and $missing.Exception.Data["code"] -eq "DEPENDENCIES_MISSING" -and
+    $missing.Exception.Message.Contains("Vite is missing") -and $missing.Exception.Message.Contains("pnpm install")) "Missing Vite reports dependency setup"
+  $viteFixture = Join-Path $dependencyFixture "apps\client\node_modules\vite\bin\vite.js"
+  New-Item -ItemType Directory -Path (Split-Path $viteFixture) -Force | Out-Null
+  Set-Content -LiteralPath $viteFixture -Value "" -Encoding ASCII
+  $missing = $null
+  try { $null = Get-LauncherDependencies $dependencyFixture } catch { $missing = $_ }
+  Assert-True ($missing -and $missing.Exception.Data["code"] -eq "DEPENDENCIES_MISSING" -and
+    $missing.Exception.Message.Contains("Electron binary is missing") -and
+    $missing.Exception.Message.Contains("pnpm --filter @ve/desktop setup:electron")) "Missing Electron reports the explicit binary installer"
+  $electronFixture = Join-Path $dependencyFixture "apps\desktop\node_modules\electron\dist\electron.exe"
+  New-Item -ItemType Directory -Path (Split-Path $electronFixture) -Force | Out-Null
+  Set-Content -LiteralPath $electronFixture -Value "" -Encoding ASCII
+  $dependencies = Get-LauncherDependencies $dependencyFixture
+  Assert-True ($dependencies.vite -eq $viteFixture -and $dependencies.electron -eq $electronFixture) "Dependency preflight returns the expected paths without launching or installing"
   $token = $env:VE_LAUNCHER_TEST_TOKEN
   try {
     $env:VE_LAUNCHER_TEST_TOKEN = $null
     Run-Launcher "start-app" 1
     Assert-True ((Get-Content "$logs\test-start-app.err" -Raw).Contains("[TESTS_RUNNING]")) "User launch is refused while the suite owns the gate"
+    $unexpected = $null
+    try { Run-Launcher "start-app" 0 } catch { $unexpected = $_ }
+    Assert-True ($unexpected -and $unexpected.Exception.Message.Contains("Child diagnostics:") -and
+      $unexpected.Exception.Message.Contains("[TESTS_RUNNING]")) "Unexpected launcher exit includes the child's coded diagnostic"
   } finally { $env:VE_LAUNCHER_TEST_TOKEN = $token }
   $actualStatePath = $statePath
   $statePath = Join-Path $logs "test-invalid-state.json"
@@ -197,6 +226,7 @@ try {
       catch { Write-Warning "Test cleanup failed: $($_.Exception.Message)" }
     }
     Remove-Item $fixture -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $dependencyFixture) { Remove-Item -LiteralPath $dependencyFixture -Recurse -Force }
   } finally {
     foreach ($name in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name]) }
     $env:VE_LAUNCHER_TEST_TOKEN = $oldToken

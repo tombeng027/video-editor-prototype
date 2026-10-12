@@ -39,6 +39,18 @@ function Get-Identity($process) {
   return @{ id = $process.Id; started = $process.StartTime.ToUniversalTime().Ticks.ToString() }
 }
 
+function Get-LauncherDependencies([string]$ProjectRoot = $root) {
+  $vite = Join-Path $ProjectRoot "apps\client\node_modules\vite\bin\vite.js"
+  $electron = Join-Path $ProjectRoot "apps\desktop\node_modules\electron\dist\electron.exe"
+  if (-not (Test-Path -LiteralPath $vite -PathType Leaf)) {
+    Fail-Launcher "DEPENDENCIES_MISSING" "Vite is missing at $vite. Run pnpm install in $ProjectRoot."
+  }
+  if (-not (Test-Path -LiteralPath $electron -PathType Leaf)) {
+    Fail-Launcher "DEPENDENCIES_MISSING" "Electron binary is missing at $electron. In $ProjectRoot, run pnpm install, then pnpm --filter @ve/desktop setup:electron."
+  }
+  return @{ vite = $vite; electron = $electron }
+}
+
 function Find-OwnedProcess($identity) {
   if (-not $identity) { return $null }
   $process = Get-Process -Id $identity.id -ErrorAction SilentlyContinue
