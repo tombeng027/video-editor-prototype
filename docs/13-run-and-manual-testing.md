@@ -4,6 +4,10 @@
 
 How to launch the prototype on a Windows PC and walk through the manual test checklist. Update the checklist as each slice lands.
 
+### Modal interaction acceptance
+
+With an isolated test project, verify Create and Export keep Tab/Shift+Tab inside the dialog and block background pointer/keyboard edits. Cancel/Escape should close an idle dialog and restore its opener focus. During creation, all fields and Cancel stay disabled and Creating explains the non-cancellable request; a failure permits retry and a successful response opens exactly the committed project. During export start preflight and running export, Escape/Close must not dismiss it; Cancel export remains available while running. Picker failure should show `FOLDER_PICK_FAILED` and unlock retry. Do not use user projects to inject failures. General network deadlines, export polling/cancel errors and real picker acceptance remain separate backlog checks.
+
 ## Prerequisites
 
 | Tool | Needed for | Check |

@@ -1,3 +1,7 @@
+# Historical System Spec
+
+Preserved for design provenance. This is not the current roadmap, an instruction to implement features, or a claim of delivered capabilities. The [maintained documentation](../README.md) supersedes it. Historical competitor references describe inspiration, not affiliation.
+
 ```markdown
 # Role & Architecture Target
 You are a Senior Software Engineer and AI Automation Engineer building the initial framework for a desktop/web video editing application inspired by CapCut, featuring an integrated local LLM video editing assistant capable of automated rhythmic and semantic video editing workflows.

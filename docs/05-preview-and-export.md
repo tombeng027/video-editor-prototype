@@ -28,7 +28,7 @@ Preview and final rendering are separate systems with different goals: preview i
 
 - `PlayheadClock` (`apps/client/src/clock.ts`) holds the playhead as fractional frames, advances with `requestAnimationFrame` and elapsed time, and stops at the end. Only the playhead line, the timecode and the preview subscribe to ticks (direct DOM updates), and React re-renders only on play, pause or rate changes.
 - One `<video>` element shows the visible clip (highest-order non-audio track). It is re-seeked only when it drifts more than 0.25 s while playing (half a frame while paused) or when the clip's source changes. Splitting one asset into contiguous clips therefore plays through without a seek.
-- The seek target is clamped to the proxy's real duration (fixes K6). At the end of the timeline the last frame is held. A gap shows "No clip here", and a clip whose proxy is not ready shows "Preparing preview".
+- The seek target is clamped to the proxy's real duration (fixes K6). At the end of the timeline the player attempts to hold the final clip; exclusive-end seek and short same-source discontinuities remain unresolved under K32, so exact last-frame behavior is not certified. A gap shows "No clip here", and a clip whose proxy is not ready shows "Preparing preview".
 - Timeline: pointer scrubbing, zoom 10-400 px/s, ruler ticks that widen when zoomed out, click to select, auto-scroll while playing.
 
 ### Known preview limits (accepted for prototype)

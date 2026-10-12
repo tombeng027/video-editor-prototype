@@ -85,7 +85,7 @@ Folder and file paths must be absolute. All routes need the session token.
 ## Import modes
 
 - **Reference (default):** the asset stores the absolute path of the original file. No extra disk use, fast import, but the project depends on the file staying put.
-- **Copy into project (option):** a per-import choice (with an optional default in settings). The file is copied to `media/` and stored as a project-relative path, making the project portable. The UI shows disk-space and progress for the copy.
+- **Copy into project (option):** an implemented per-import choice. The file is copied to `media/` and stored as a project-relative path. The UI shows a busy import state, not copy-byte progress or a disk-space check; Settings/default preferences remain planned.
 - Export output always goes to `exports/`, regardless of import mode.
 - Switching an existing asset between modes is a future feature.
 

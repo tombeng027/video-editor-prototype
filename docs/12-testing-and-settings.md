@@ -4,7 +4,9 @@
 
 ## Testing strategy
 
-The table below is the target strategy. Current coverage is Vitest schema/core/engine/client-helper tests, real-FFmpeg tests, pytest for the vision health stub, and Windows launcher integration checks. Testing Library component tests, automated Electron editing flows, AI evaluations and vision scoring tests are still planned.
+The table below is the target strategy. Current coverage is Vitest schema/core/engine/client-helper tests, Testing Library modal/creation/export component regressions in jsdom, real-FFmpeg tests, pytest for the vision health stub, and Windows launcher integration checks. Broader component coverage, automated Electron editing flows, AI evaluations and vision scoring tests remain planned.
+
+Modal tests explicitly shim jsdom's missing native dialog methods; they verify React interaction and guards, not browser top-layer inertness. Native inertness, focus and keyboard behavior have a separate browser smoke check using synthetic API responses. Neither substitutes for native picker, real-media playback or complete accessibility acceptance.
 
 | Layer | Tool | What is tested |
 |-------|------|----------------|
@@ -39,7 +41,7 @@ The following table describes target settings. There is **no Settings dialog** y
 
 - **Implemented locally:** Windows launcher captures per-session component stdout/stderr and coded errors. Local JSON config controls conservative age/soft-budget retention and terminal storage/low-disk warnings. Startup/shutdown and manual dry-run/cleanup checks are covered by isolated PowerShell tests. See [Run guide](./13-run-and-manual-testing.md) for configuration, safety boundaries and recovery codes.
 - **Not yet implemented:** rotating engine/vision logs, in-app storage banners, periodic monitoring, settings controls and status-area links to logs. The status area currently shows health indicators and detail/hint tooltips.
-- **Next diagnostics slice:** nonblocking in-app warnings and recovery controls. Broader engine/vision logging remains a separate integration step; the launcher policy does not cover manually launched services.
+- **Next diagnostics gate:** correct partial cleanup results/accounting and retryable metadata handling (K29) before nonblocking in-app warnings and recovery controls (K21). Broader engine/vision logging remains a separate integration step; the launcher policy does not cover manually launched services.
 
 ## Prototype distribution
 

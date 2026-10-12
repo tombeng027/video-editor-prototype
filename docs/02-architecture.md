@@ -5,7 +5,7 @@
 ## Overview
 
 ```
-+------------------+   HTTP/WebSocket   +----------------------+   HTTP   +-------------------+
++------------------+   HTTP + SSE      +----------------------+   HTTP   +-------------------+
 |  Client (React)  | <----------------> |  Engine (Node/TS)    | -------> | Vision (Python)   |
 |  UI, timeline,   |                    |  files, FFmpeg,      |          | OpenCV + CLIP     |
 |  preview, chat   |                    |  export, validation  |          +-------------------+
@@ -22,10 +22,10 @@ This diagram includes planned M4-M6 services. Currently the engine manages proje
 |-----------|------|------------------|
 | Desktop shell | Electron | Window, native folder/media dialogs, reveal-in-folder, source-based engine startup/shutdown. Packaging and path drag-and-drop are planned. |
 | Client | React, TypeScript, Vite, React hooks | UI, timeline interaction, playback clock, engine round-trip command dispatch. Zustand and optimistic dispatch are not currently used. |
-| Engine | Node, TypeScript, Fastify | Project storage, import and probing (ffprobe), proxy generation, export, AI proxy and action validation, job queue |
+| Engine | Node, TypeScript, Fastify | Project storage, import/probing, proxy generation, export and job queues; AI proxy/action validation planned |
 | Vision service | Python, FastAPI health stub | OpenCV/PyTorch/CLIP scoring is planned for M6; peak finding/window building will stay in the engine |
 | Schema package | TypeScript, Zod | Shared types for project, commands, AI actions, API payloads |
-| Ollama | Local daemon | LLM inference for chat and action proposals |
+| Ollama | External local daemon | Health probing currently; LLM chat/action proposals planned |
 
 ## Why a client/engine split
 
@@ -57,7 +57,7 @@ video-editor/
 - **SSE implemented:** proxy job progress. Export uses polling. Chat streaming transport is planned for M4; WebSocket is not implemented.
 - **Media delivery:** engine serves proxy media with HTTP range requests so `<video>` can seek.
 - **Security:** engine binds to `127.0.0.1` by default. LAN access is a future, opt-in setting.
-  - Every request needs the per-session token. `<video>` and `<audio>` elements cannot send headers, so media URLs carry the token as a query parameter (or the engine sets a session cookie).
+  - Engine API/media access uses the per-session token. `<video>` and `<audio>` elements cannot send headers, so media URLs carry the token as a query parameter.
   - The engine checks the `Origin` header and rejects requests from unknown origins, so other local web pages cannot read project files.
   - The vision stub binds to localhost. Engine-only authenticated analysis access must be implemented before M6; it is not a current guarantee.
 
@@ -65,7 +65,7 @@ video-editor/
 
 - **Implemented:** the client holds the last engine-returned project and plans command batches; the engine applies the reducer and saves before returning the updated project. Client undo/redo and reconnect recovery are not implemented.
 - **Planned:** serialize edits, build history from returned inverses, and handle reconnection explicitly in M3. Optimistic local reduction is optional future work, not current behavior.
-- **Current implementation (M2 Slice A):** the engine owns the single open project and applies every command batch (`POST /project/commands`), autosaving after each one and returning the new project plus the inverse commands. The client also does not apply commands locally: since Slice B step 2 it sends each batch to the engine and adopts the returned project, so there is one source of truth and no divergence to reconcile. The engine is local, so the round trip is a few milliseconds. Optimistic local application (using the same reducer) stays an option if drag editing in M3 needs it.
+- **Current implementation (M2 Slice A):** the engine owns the single open project and applies each command batch (`POST /project/commands`), autosaving and returning the project plus inverse commands. Since Slice B step 2 the client adopts that response without local reduction. The engine is authoritative, but async ordering, stale client state and mutation uncertainty still require K12/K24 recovery work. Default-local command/save latency has not been benchmarked. Optimistic reduction stays a future option if M3 drag editing needs it.
 - **Planned M5-M6:** AI confirmations dispatch commands through this same path; `InsertSequence` is not implemented.
 
 ## Media tools
@@ -76,7 +76,7 @@ video-editor/
 ## Desktop shell rules
 
 - Electron runs with `contextIsolation` on and `nodeIntegration` off. No save dialog or dropped-path bridge is currently exposed.
-- The shell starts the engine on a free local port with a per-session token and stops it on quit. The engine's stdin is a pipe held open by the shell (`ENGINE_EXIT_WHEN_PARENT_GONE=1`); when the shell dies, even from a force-kill, the pipe closes and the engine exits instead of being orphaned. The client talks to the engine over HTTP/WebSocket exactly as it would in a browser, so the client never depends on Electron APIs for editing.
+- The shell starts the engine on a free local port with a per-session token and stops it on quit. The engine's stdin is a pipe held open by the shell (`ENGINE_EXIT_WHEN_PARENT_GONE=1`); when the shell dies, even from a force-kill, the pipe closes and the engine exits instead of being orphaned. Editing APIs use HTTP and progress uses SSE; Electron IPC provides native dialogs and shell actions rather than timeline editing.
 - Native dialogs use dedicated IPC channels with origin checks. Current preload API: `engine`, `pickFolder(title)`, `pickMedia(title)`, and `revealInFolder(file)`.
 - Electron is chosen because the engine is Node/TypeScript and can be bundled directly. The thin-shell rule keeps a later move to Tauri or Capacitor open.
 
@@ -93,6 +93,6 @@ video-editor/
 
 ## Cross-cutting rules
 
-- All inputs are validated with the shared Zod schemas at every boundary.
+- Project/API payloads use shared schemas and persistence adds relational checks. Complete boundary error handling is not guaranteed: malformed SSE JSON and client recovery remain K24 work.
 - Jobs currently have separate proxy/export schemas. A unified job model is a future design option, not an implemented abstraction.
 - Errors are typed and carry a user-readable message.

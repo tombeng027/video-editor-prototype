@@ -2,7 +2,7 @@
 
 [Back to index](./README.md)
 
-**Status:** target UX, not a current feature inventory. Current UI has landing/create/open, resizable panes, one-track add/split/delete/scrub/zoom, video preview and export. Settings, drag/drop, search, frame-step, move/trim gestures, Undo/Redo, mute/lock controls, overlays and AI/caption workflows are planned. Responsive collapse and complete keyboard/focus behavior are not yet verified/implemented; see [Review status](./16-review-plan-and-system-status.md).
+**Status:** target UX, not a current feature inventory. Current UI has landing/create/open, resizable panes, one-track add/split/delete/scrub/zoom, video preview and export. Native modal input isolation and creation/start pending guards are implemented and verified locally; complete editor accessibility is not certified. Settings, drag/drop, search, frame-step, move/trim gestures, Undo/Redo, mute/lock controls, overlays and AI/caption workflows are planned. Responsive collapse remains planned; see [Review status](./16-review-plan-and-system-status.md).
 
 ## Screens
 
@@ -10,6 +10,14 @@
 2. **Editor:** four panes plus a top bar (project name, save status, export).
 
 A planned **Settings** dialog (reachable from both screens) will hold the app-level settings listed in [Testing and Settings](./12-testing-and-settings.md). There is no Settings dialog today.
+
+### Implemented modal policy
+
+- Create and export use a shared native modal dialog: background controls are inert, Tab/Shift+Tab stay inside, and dismissal restores focus to a still-connected opener. Editor shortcuts do not run behind export.
+- Idle creation can be cancelled with Cancel or Escape. After submission, fields and Cancel are disabled, duplicate submissions/navigation are refused and a Creating status explains that the request cannot be cancelled. Success enters the committed project with any warnings; a reported failure unlocks retry/Cancel.
+- Native folder selection locks conflicting creation/open navigation until it returns. Picker failures show `FOLDER_PICK_FAILED` and allow retry.
+- Export cannot close during start preflight or while running. Running export retains its Cancel export action; engine cancellation semantics are unchanged.
+- Backdrop clicks do not dismiss these dialogs. General request deadlines, uncertain mutation reconciliation, export polling/cancel recovery and full accessibility/screen-reader acceptance remain separate work.
 
 ## Editor layout (desktop)
 

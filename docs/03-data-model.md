@@ -108,13 +108,13 @@ type EditList = {
 ## Frame rate and clip audio
 
 - The project frame rate is set at project creation. The create dialog offers a preset list, plus "use the frame rate of the first imported video" as an option that sets it on first import.
-- A video clip's audio stays linked to the clip: moving, trimming or splitting the clip affects its audio together.
-- "Split audio" (a command) creates a separate audio clip on an audio track covering the same source range and sets `audioLinked: false` on the video clip. It is a single undo step.
+- **Current:** preview/export use the visible video's source audio; split/delete operate on its source range. Move/trim UI and independent audio behavior remain planned.
+- **Planned:** "Split audio" would create a separate audio clip on an audio track covering the same source range and set `audioLinked: false` on the video clip as a single undo step. No such command or end-to-end audio-track rendering exists yet.
 
 ## Overlay behavior
 
-- Track order sets layering: higher tracks draw over lower ones.
-- Overlay clips have an optional static `transform` (position x/y, scale, opacity) for the whole clip. Preview applies it with CSS; export uses the FFmpeg `overlay` filter with matching values.
+- **Current:** preview/export select the highest-order non-audio clip; they do not composite tracks.
+- **Planned:** overlay clips' optional static `transform` (position x/y, scale, opacity) would be applied consistently in preview and export. The schema field exists, but CSS transform rendering and FFmpeg overlay compositing are not implemented.
 - Rotation, crop, blend modes and keyframed transforms are future upgrades.
 
 ## Versioning

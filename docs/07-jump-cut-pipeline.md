@@ -23,7 +23,7 @@ For the keycap example:
 3. CLIP converts each frame and the text into embeddings and compares them. A higher score means the frame more likely shows the action.
 4. It returns a score per timestamp. The engine picks the peaks and builds the half-second clips.
 
-It runs only on the user's machine, starts on demand, and nothing leaves the computer.
+The planned default is local analysis with on-demand startup; neither analysis nor managed startup exists yet. Setup/model downloads require network access, configured service endpoints may be remote, and shared support data can leave the machine. This is not an absolute privacy/no-network guarantee. Verify endpoint and data-handling behavior before enabling analysis.
 
 ## Pipeline
 

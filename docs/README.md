@@ -6,7 +6,7 @@ Current implementation: M1-M2 capabilities and Windows launcher stabilization; M
 
 ## Product summary
 
-A CapCut-inspired video editor with a local LLM assistant (Ollama). The assistant is conversational and suggestive by default, and can run a small set of confirmed "quick actions". The first quick action is the **jump-cut sequence**: given a time range and an action description, find the matching half-second moments and assemble them into a candidate sequence.
+A Windows-first video editor with a planned local LLM assistant (Ollama). The assistant is conversational and suggestive by default, and can run a small set of confirmed "quick actions". The first quick action is the **jump-cut sequence**: given a time range and an action description, find the matching half-second moments and assemble them into a candidate sequence.
 
 The prototype targets **PC first**. Mobile and standalone on-device editing are future upgrades, and the architecture avoids decisions that would block them.
 
@@ -27,7 +27,7 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 | 11 | [Risks and Decisions](./11-risks-and-open-questions.md) | Known risks and the decisions made so far |
 | 12 | [Testing and Settings](./12-testing-and-settings.md) | Test strategy, app settings, logging |
 | 13 | [Running and Manual Testing](./13-run-and-manual-testing.md) | Launch steps, test media, manual test checklist |
-| 14 | [Content and Marketing](./14-content-and-marketing.md) | Positioning, demo plan, sponsor package, claims checklist |
+| 14 | [Public Participation and Demo Guidance](./14-content-and-marketing.md) | Public purpose, participation, verified demo limits and disclosure checklist |
 | 15 | [Captions Concept](./15-captions-concept.md) | Future feature: auto-captions with a separate caption timeline (design note, not scheduled) |
 | 16 | [Review Plan and System Status](./16-review-plan-and-system-status.md) | Subsystem matrix, specialist review perspectives, evidence, findings and acceptance gates |
 | 17 | [QA and Fix Readiness](./17-qa-and-fix-readiness.md) | QA issue assessment, engineering pre-fix review, reconciliation and post-fix acceptance |
@@ -46,5 +46,5 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 
 ## Source material
 
-- [archive/INITIAL_PROMPT.md](./archive/INITIAL_PROMPT.md) - original prompt
-- [archive/SYSTEM_SPEC.md](./archive/SYSTEM_SPEC.md) - original system spec (superseded by these docs where they differ)
+- [archive/INITIAL_PROMPT.md](./archive/INITIAL_PROMPT.md) - historical original prompt, not current requirements
+- [archive/SYSTEM_SPEC.md](./archive/SYSTEM_SPEC.md) - historical original system spec; maintained docs supersede its milestone/feature claims

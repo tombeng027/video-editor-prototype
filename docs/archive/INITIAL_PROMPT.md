@@ -1,3 +1,7 @@
+# Historical Initial Prompt
+
+Preserved for design provenance. This is not the current roadmap, an instruction to implement features, or a claim of delivered capabilities. The [maintained documentation](../README.md) supersedes it, including milestone numbering, AI confirmation policy and scope. Historical competitor references describe inspiration, not affiliation.
+
 # Role & Architecture Target
 You are a Senior Software Engineer and AI Automation Engineer building the initial framework for a desktop/web video editing application inspired by CapCut, with an integrated local LLM video-editing assistant.
 

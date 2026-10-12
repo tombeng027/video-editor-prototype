@@ -13,6 +13,8 @@ The senior QA and senior engineering perspectives are complementary reasoning le
 - Proceed only inside user-approved scope. Discovering an issue or agreeing on a fix does not authorize unrelated changes, milestone expansion, commits or publication.
 - Preserve user projects, media, logs and unrelated processes. Reproductions must use owned test fixtures and isolated state.
 - Distinguish current defects, coverage gaps and future risks. A future risk is not automatically a reproduced bug.
+- For significant scope/dependency proposals, apply the [maintainer-purpose gate](./01-overview-and-scope.md#maintainer-purpose-and-scope-gate): preserve open-source compatibility, maintainer capacity and the editor's bounded community/QA role. Potential commercial value or sponsorship is not approval to expand scope. Keep personal/business planning out of public review records.
+- Check the [legal/publication gate status](./16-review-plan-and-system-status.md#legal-and-publication-gate-status) when a fix introduces model downloads, third-party artifacts, contribution terms or public distribution/claims. Hold the affected activity if its gate is unmet; a pending project-license decision alone does not block routine stabilization.
 
 ## 1. Establish the baseline
 

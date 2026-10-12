@@ -6,7 +6,7 @@ Status: **idea captured, not scheduled.** We build this once the prototype (M2 t
 
 ## Idea
 
-Like CapCut's auto-captions: the AI transcribes the speech and creates timed caption cues. Unlike CapCut, captions do **not** live in the main timeline.
+Planned speech transcription would create timed caption cues. Captions would have a separate workspace rather than living in the main timeline.
 
 **Principle: separation of concerns.** The main timeline is for video editing (trim, split, move, layer). Captions are a different task (wording, timing, style), so they get their own focused workspace instead of adding more things to the main screen.
 
