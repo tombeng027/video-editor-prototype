@@ -70,18 +70,21 @@ export async function buildApp(
     onOpened: async () => {
       proxies.reset();
       exporter.reset();
+      await Promise.all([proxies.idle(), exporter.settled()]);
       await importer.resumeProxies();
     },
-    onClosed: () => {
+    onClosed: async () => {
       proxies.reset();
       exporter.reset();
+      await Promise.all([proxies.idle(), exporter.settled()]);
     },
-  });
+  }, config.projectsDir);
   registerMediaRoutes(app, session, importer, proxies);
   registerExportRoutes(app, session, exporter);
   app.addHook("onClose", async () => {
     proxies.reset();
     exporter.reset();
+    await Promise.all([proxies.idle(), exporter.settled()]);
   });
 
   return app;

@@ -17,16 +17,23 @@ export function Landing({ config, health, onOpened }: Props) {
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [recentError, setRecentError] = useState<string | null>(null);
   const pickFolder = getBridge()?.pickFolder;
   const engineReady = health?.state === "ok";
 
   useEffect(() => {
-    if (engineReady) void listRecent(config).then(setRecent);
+    let active = true;
+    if (engineReady) void listRecent(config).then((result) => {
+      if (!active) return;
+      if (result.ok) { setRecent(result.data.projects); setRecentError(null); }
+      else setRecentError(`[${result.code}] ${result.message}`);
+    });
+    return () => { active = false; };
   }, [config, engineReady]);
 
   const finish = (result: ApiResult<ProjectResponse>) => {
     setBusy(false);
-    if (!result.ok) return setMessage(result.message);
+    if (!result.ok) return setMessage(`[${result.code}] ${result.message}`);
     if (result.data.recoveredFromBackup) {
       window.alert("The project file was damaged, so the last backup was loaded instead.");
     }
@@ -59,7 +66,8 @@ export function Landing({ config, health, onOpened }: Props) {
       {message && <p role="alert" className="error">{message}</p>}
       <section aria-label="Recent projects">
         <h2>Recent projects</h2>
-        {recent.length === 0 ? (
+        {recentError && <p role="alert" className="error">{recentError}</p>}
+        {recent.length === 0 && !recentError ? (
           <p className="placeholder">No recent projects yet.</p>
         ) : (
           <ul className="recent">

@@ -42,6 +42,7 @@ export const ProjectResponseSchema = z.object({
   folder: z.string(),
   project: ProjectSchema,
   recoveredFromBackup: z.boolean(),
+  warnings: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
 });
 export type ProjectResponse = z.infer<typeof ProjectResponseSchema>;
 
@@ -64,6 +65,8 @@ export type RecentProject = z.infer<typeof RecentProjectSchema>;
 
 export const RecentProjectsResponseSchema = z.object({ projects: z.array(RecentProjectSchema) });
 export type RecentProjectsResponse = z.infer<typeof RecentProjectsResponseSchema>;
+export const DefaultFolderResponseSchema = z.object({ folder: z.string() });
+
 export const ImportRequestSchema = z.object({
   paths: z.array(z.string().min(1)).min(1).max(50),
   mode: z.enum(["reference", "copy"]),

@@ -22,6 +22,7 @@ export function App() {
       project={opened.project}
       folder={opened.folder}
       health={health}
+      warnings={opened.warnings}
       onClose={() => {
         void closeProject(config);
         setOpened(null);

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
@@ -66,10 +66,21 @@ describe("parseRange", () => {
 });
 
 describe("ProxyManager", () => {
+  let tmp: string;
+  const managers: ProxyManager[] = [];
+  beforeEach(async () => { tmp = await mkdtemp(path.join(os.tmpdir(), "ve-proxy-test-")); });
+  afterEach(async () => {
+    for (const manager of managers.splice(0)) {
+      manager.reset();
+      await manager.idle();
+    }
+    await rm(tmp, { recursive: true, force: true });
+    await expect(stat(tmp)).rejects.toMatchObject({ code: "ENOENT" });
+  });
   const job = (assetId: string, onDone = async () => {}) => ({
     assetId,
     source: "in.mp4",
-    outFile: path.join(os.tmpdir(), `${assetId}.mp4`),
+    outFile: path.join(tmp, `${assetId}.mp4`),
     fps: { num: 30, den: 1 },
     durationSeconds: 1,
     hasAudio: false,
@@ -92,6 +103,7 @@ describe("ProxyManager", () => {
       await writeFile(input.outFile, "x");
     };
     const manager = new ProxyManager("ffmpeg", runner);
+    managers.push(manager);
     const events: string[] = [];
     manager.subscribe((s) => events.push(`${s.assetId}:${s.state}`));
     manager.enqueue(job("ok1"));
@@ -100,11 +112,11 @@ describe("ProxyManager", () => {
     expect(order).toEqual(["ok1", "bad"]);
     expect(manager.list().find((s) => s.assetId === "bad")).toMatchObject({ state: "failed", message: "boom" });
     expect(events).toContain("ok1:done");
-    await rm(path.join(os.tmpdir(), "ok1.mp4"), { force: true });
   });
 
   it("forgets everything on reset", async () => {
     const manager = new ProxyManager("ffmpeg", (input) => new Promise((_, reject) => input.signal.addEventListener("abort", () => reject(new Error("aborted")))));
+    managers.push(manager);
     manager.enqueue(job("slow"));
     await new Promise((r) => setTimeout(r, 20));
     manager.reset();
@@ -128,10 +140,16 @@ describe.skipIf(!hasFfmpeg)("import and proxy (real FFmpeg)", () => {
       "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", clip,
     ], { stdio: "ignore" });
   });
+  afterAll(async () => {
+    if (tmp) {
+      await rm(tmp, { recursive: true, force: true });
+      await expect(stat(tmp)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
   beforeEach(async () => {
     app = await buildApp(loadConfig({ ENGINE_TOKEN: "secret", ENGINE_DATA_DIR: path.join(tmp, "data") }));
   });
-  afterEach(async () => app.close());
+  afterEach(async () => app?.close());
 
   const create = (folder: string, extra: object = {}) =>
     app.inject({

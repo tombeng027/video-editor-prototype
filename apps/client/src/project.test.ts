@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProject, listRecent, sendCommands } from "./projectApi.js";
+import { createProject, getDefaultFolder, listRecent, sendCommands } from "./projectApi.js";
 import { FPS_PRESETS, projectFolderFor, validateNewProject } from "./presets.js";
 
 const config = { url: "http://engine", token: "tok" };
@@ -26,6 +26,14 @@ describe("presets", () => {
 });
 
 describe("projectApi", () => {
+  it("returns the default location or an explicit failure", async () => {
+    expect(await getDefaultFolder(config, json(200, { folder: "C:\\Samples" }))).toEqual({
+      ok: true, data: { folder: "C:\\Samples" },
+    });
+    expect(await getDefaultFolder(config, json(500, { error: { code: "FAILED", message: "no access" } })))
+      .toEqual({ ok: false, code: "FAILED", message: "no access" });
+    expect(await getDefaultFolder(config, json(200, {}))).toMatchObject({ ok: false, code: "BAD_RESPONSE" });
+  });
   it("surfaces typed engine errors", async () => {
     const res = await createProject(
       config,
@@ -43,13 +51,27 @@ describe("projectApi", () => {
     expect(res).toMatchObject({ ok: false, code: "UNREACHABLE" });
   });
 
-  it("rejects malformed success payloads and returns [] for recents on failure", async () => {
+  it("rejects malformed success payloads and exposes recents failure", async () => {
     const bad = await createProject(
       config,
       { folder: "x", name: "n", fps: { num: 30, den: 1 }, width: 1, height: 1 },
       json(200, { nope: true }),
     );
     expect(bad).toMatchObject({ ok: false, code: "BAD_RESPONSE" });
-    expect(await listRecent(config, json(500, {}))).toEqual([]);
+    expect(await listRecent(config, json(500, {}))).toMatchObject({ ok: false, code: "HTTP_500" });
+  });
+
+  it("retains project-operation warnings and distinguishes an empty recent list from failure", async () => {
+    const project = {
+      schemaVersion: 1, id: "p", name: "Demo", settings: { fps: { num: 30, den: 1 }, width: 640, height: 360, fpsFromFirstImport: false },
+      assets: [], tracks: [], createdAt: "", updatedAt: "",
+    };
+    const warnings = [{ code: "RECENT_UPDATE_FAILED", message: "Open succeeded; index update failed." }];
+    expect(await createProject(config, { folder: "x", name: "Demo", fps: { num: 30, den: 1 }, width: 640, height: 360 },
+      json(200, { folder: "x", project, recoveredFromBackup: false, warnings }))).toMatchObject({ ok: true, data: { warnings } });
+    expect(await listRecent(config, json(200, { projects: [] }))).toEqual({ ok: true, data: { projects: [] } });
+    expect(await listRecent(config, json(500, { error: { code: "RECENT_INDEX_INVALID", message: "Damaged index." } }))).toEqual({
+      ok: false, code: "RECENT_INDEX_INVALID", message: "Damaged index.",
+    });
   });
 });

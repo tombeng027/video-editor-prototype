@@ -1,5 +1,6 @@
 import {
   CommandsResponseSchema,
+  DefaultFolderResponseSchema,
   ExportStateSchema,
   ImportResponseSchema,
   MediaStatusResponseSchema,
@@ -14,7 +15,6 @@ import {
   type ImportResponse,
   type MediaStatusResponse,
   type ProjectResponse,
-  type RecentProject,
 } from "@ve/schema";
 import { z, type ZodType } from "zod";
 import type { EngineConfig } from "./engine.js";
@@ -60,10 +60,8 @@ export const openProject = (c: EngineConfig, folder: string, f?: typeof fetch) =
 export const sendCommands = (c: EngineConfig, commands: Command[], f?: typeof fetch) =>
   call<CommandsResponse>(c, "POST", "/project/commands", CommandsResponseSchema, { commands }, f);
 
-export async function listRecent(c: EngineConfig, f?: typeof fetch): Promise<RecentProject[]> {
-  const result = await call(c, "GET", "/projects/recent", RecentProjectsResponseSchema, undefined, f);
-  return result.ok ? result.data.projects : [];
-}
+export const listRecent = (c: EngineConfig, f?: typeof fetch) =>
+  call(c, "GET", "/projects/recent", RecentProjectsResponseSchema, undefined, f);
 
 export async function closeProject(c: EngineConfig, f?: typeof fetch): Promise<void> {
   await call(c, "POST", "/project/close", z.object({ ok: z.boolean() }), {}, f);
@@ -86,3 +84,6 @@ export const startExport = (c: EngineConfig, f?: typeof fetch) =>
 
 export const cancelExport = (c: EngineConfig, f?: typeof fetch) =>
   call<ExportState>(c, "POST", "/project/export/cancel", ExportStateSchema, {}, f);
+
+export const getDefaultFolder = (c: EngineConfig, f?: typeof fetch) =>
+  call(c, "GET", "/projects/default-folder", DefaultFolderResponseSchema, undefined, f);

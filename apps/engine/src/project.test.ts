@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +27,36 @@ afterEach(async () => rm(tmp, { recursive: true, force: true }));
 
 const sample = (name = "Demo") =>
   createEmptyProject({ id: "p1", name, fps: { num: 30, den: 1 }, width: 1920, height: 1080 });
+
+describe("default project location", () => {
+  it("returns a recoverable error when the location is a file", async () => {
+    const folder = path.join(tmp, "not-a-directory");
+    await writeFile(folder, "test");
+    const app = await buildApp(loadConfig({ PROJECTS_DIR: folder, ENGINE_DATA_DIR: tmp, ENGINE_TOKEN: "secret" }));
+    try {
+      const result = await app.inject({ url: "/projects/default-folder", headers: { "x-engine-token": "secret" } });
+      expect(result.statusCode).toBe(422);
+      expect(result.json().error).toMatchObject({ code: "PROJECT_LOCATION_UNAVAILABLE" });
+      expect(result.json().error.message).toMatch(/Choose a writable folder/);
+    } finally { await app.close(); }
+  });
+  it("rejects a relative override", () => {
+    expect(() => loadConfig({ PROJECTS_DIR: "relative" })).toThrow(/absolute/);
+  });
+
+  it("creates the configured folder and protects the route", async () => {
+    const folder = path.join(tmp, "samples");
+    const app = await buildApp(loadConfig({ PROJECTS_DIR: folder, ENGINE_DATA_DIR: tmp, ENGINE_TOKEN: "secret" }));
+    try {
+      expect((await app.inject({ url: "/projects/default-folder" })).statusCode).toBe(401);
+      const result = await app.inject({ url: "/projects/default-folder", headers: { "x-engine-token": "secret" } });
+      expect(result.json()).toEqual({ folder });
+      expect((await stat(folder)).isDirectory()).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe("projectStore", () => {
   it("creates the folder layout and a readable project", async () => {
@@ -82,11 +112,11 @@ describe("RecentProjects", () => {
     expect(list.filter((p) => p.folder.endsWith("p5"))).toHaveLength(1);
   });
 
-  it("returns an empty list for a missing or damaged index", async () => {
+  it("returns an empty list only for a missing index and reports damage", async () => {
     const file = path.join(tmp, "recent.json");
     expect(await new RecentProjects(file).list()).toEqual([]);
     await writeFile(file, "garbage", "utf8");
-    expect(await new RecentProjects(file).list()).toEqual([]);
+    await expect(new RecentProjects(file).list()).rejects.toMatchObject({ code: "RECENT_INDEX_INVALID" });
   });
 });
 

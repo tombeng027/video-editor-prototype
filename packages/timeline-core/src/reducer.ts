@@ -71,6 +71,38 @@ function validateClipRange(project: Project, asset: Asset, clip: Clip): CommandE
   return null;
 }
 
+/** Relational checks shared by saved-project loading and atomic command batches. */
+export function validateProject(project: Project): CommandError | null {
+  const ids = new Set<string>();
+  const orders = new Set<number>();
+  const assets = new Map(project.assets.map((asset) => [asset.id, asset]));
+  const clips = new Map(project.tracks.flatMap((track) => track.clips.map((clip) => [clip.id, clip] as const)));
+  for (const entity of [...project.assets, ...project.tracks, ...project.tracks.flatMap((track) => track.clips)]) {
+    if (ids.has(entity.id)) return { code: "DUPLICATE_ID", message: `ID ${entity.id} is used more than once.` };
+    ids.add(entity.id);
+  }
+  for (const track of project.tracks) {
+    if (orders.has(track.order)) return { code: "DUPLICATE_ORDER", message: `Track order ${track.order} is used more than once.` };
+    orders.add(track.order);
+    const sorted = [...track.clips].sort((a, b) => a.timelineStart - b.timelineStart);
+    for (const [index, clip] of sorted.entries()) {
+      const asset = assets.get(clip.assetId);
+      if (!asset) return { code: "NOT_FOUND", message: `Clip ${clip.id} refers to missing asset ${clip.assetId}.` };
+      if (!assetFitsTrack(asset, track)) return { code: "TRACK_KIND_MISMATCH", message: `Clip ${clip.id} cannot use a ${asset.kind} asset on a ${track.kind} track.` };
+      if (clip.transform && track.kind !== "overlay") return { code: "INVALID_TRANSFORM", message: `Clip ${clip.id} has a transform outside an overlay track.` };
+      const range = validateClipRange(project, asset, clip);
+      if (range) return { ...range, message: `Clip ${clip.id}: ${range.message}` };
+      if (!Number.isSafeInteger(clipEnd(clip))) return { code: "INVALID_RANGE", message: `Clip ${clip.id} ends outside the supported frame range.` };
+      const previous = sorted[index - 1];
+      if (previous && clip.timelineStart < clipEnd(previous)) return { code: "OVERLAP", message: `Clips ${previous.id} and ${clip.id} overlap on track ${track.id}.` };
+      if (clip.linkedClipId && (clip.linkedClipId === clip.id || !clips.has(clip.linkedClipId))) {
+        return { code: "NOT_FOUND", message: `Clip ${clip.id} has an invalid linked clip ${clip.linkedClipId}.` };
+      }
+    }
+  }
+  return null;
+}
+
 function replaceTrack(project: Project, track: Track): Project {
   return { ...project, tracks: project.tracks.map((t) => (t.id === track.id ? track : t)) };
 }
@@ -263,6 +295,8 @@ export function applyCommands(
   project: Project,
   commands: Command[],
 ): CommandResult {
+  const initialError = validateProject(project);
+  if (initialError) return { ok: false, error: initialError };
   let current = project;
   const inverse: Command[] = [];
   for (const command of commands) {
@@ -271,5 +305,6 @@ export function applyCommands(
     current = result.project;
     inverse.unshift(...result.inverse);
   }
-  return { ok: true, project: current, inverse };
+  const error = validateProject(current);
+  return error ? { ok: false, error } : { ok: true, project: current, inverse };
 }

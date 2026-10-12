@@ -11,3 +11,8 @@ out/
 *.tsbuildinfo
 coverage/
 *.veproj.local/
+
+# Sample projects and demo media are local only
+sample-projects/*
+!sample-projects/.gitkeep
+demo-media/

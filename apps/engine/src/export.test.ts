@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Asset, Command, Project } from "@ve/schema";
 import { buildRenderPlan, createEmptyProject, type RenderPlan } from "@ve/timeline-core";
@@ -117,6 +117,12 @@ describe("export routes (fake FFmpeg)", () => {
     source = path.join(tmp, "src.mp4");
     await writeFile(source, "x");
   });
+  afterAll(async () => {
+    if (tmp) {
+      await rm(tmp, { recursive: true, force: true });
+      await expect(stat(tmp)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
   beforeEach(async () => {
     probed = 3;
     runner = async (input) => {
@@ -135,7 +141,7 @@ describe("export routes (fake FFmpeg)", () => {
       payload: { folder, name: "Demo", fps, width: 1280, height: 720 },
     });
   });
-  afterEach(async () => app.close());
+  afterEach(async () => app?.close());
 
   const commands = (cmds: Command[]) => app.inject({ method: "POST", url: "/project/commands", headers, payload: { commands: cmds } });
   const start = () => app.inject({ method: "POST", url: "/project/export", headers });
@@ -179,7 +185,7 @@ describe("export routes (fake FFmpeg)", () => {
     expect(res.statusCode).toBe(202);
     const done = await settle();
     expect(done.state).toBe("done");
-    expect(done.outputPath).toMatch(/exports[\\/]Demo-\d{8}-\d{6}\.mp4$/);
+    expect(done.outputPath).toMatch(/exports[\\/]Demo-\d{8}-\d{6}-[a-f0-9-]+\.mp4$/);
     expect((await stat(done.outputPath)).isFile()).toBe(true);
     expect((await readdir(path.join(folder, "exports"))).filter((f) => f.endsWith(".part"))).toEqual([]);
   });
@@ -235,6 +241,12 @@ describe.skipIf(!hasFfmpeg)("export (real FFmpeg)", () => {
 
   beforeAll(async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "ve-export-real-"));
+  });
+  afterAll(async () => {
+    if (tmp) {
+      await rm(tmp, { recursive: true, force: true });
+      await expect(stat(tmp)).rejects.toMatchObject({ code: "ENOENT" });
+    }
   });
   afterEach(async () => app?.close());
 

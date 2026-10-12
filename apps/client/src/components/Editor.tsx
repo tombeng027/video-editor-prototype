@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Asset, Project } from "@ve/schema";
+import type { Asset, Project, ProjectResponse } from "@ve/schema";
 import { PlayheadClock } from "../clock.js";
 import type { EngineConfig } from "../engine.js";
 import { getMediaStatus, getProject, sendCommands } from "../projectApi.js";
@@ -16,9 +16,9 @@ import { exportDisabledReason, saveLabel, type SaveStatus } from "../exportStatu
 import { Splitter } from "./Splitter.js";
 import { StatusArea } from "./StatusArea.js";
 
-type Props = { config: EngineConfig; project: Project; folder: string; health: HealthResult | null; onClose: () => void };
+type Props = { config: EngineConfig; project: Project; folder: string; health: HealthResult | null; warnings?: ProjectResponse["warnings"]; onClose: () => void };
 
-export function Editor({ config, project: initialProject, folder, health, onClose }: Props) {
+export function Editor({ config, project: initialProject, folder, health, warnings, onClose }: Props) {
   const [project, setProject] = useState(initialProject);
   const proxyStates = useProxyStatus(config, () => {
     void getProject(config).then((r) => r.ok && setProject(r.data.project));
@@ -121,6 +121,7 @@ export function Editor({ config, project: initialProject, folder, health, onClos
         </button>
         <button onClick={() => setSizes({ ...DEFAULT_SIZES, assistantOpen })}>Reset layout</button>
       </header>
+      {warnings?.map((warning) => <p key={warning.code} role="status" className="error">[{warning.code}] {warning.message}</p>)}
 
       <div className="workspace">
         <div className="upper" style={{ gridTemplateColumns: `${assetsWidth}px 6px 1fr ${assistantOpen ? `6px ${assistantWidth}px` : ""}` }}>

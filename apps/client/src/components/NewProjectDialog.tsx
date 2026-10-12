@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { ProjectResponse } from "@ve/schema";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig } from "../engine.js";
-import { createProject } from "../projectApi.js";
+import { createProject, getDefaultFolder } from "../projectApi.js";
 import {
   DEFAULT_FPS_INDEX,
   FPS_PRESETS,
@@ -27,8 +27,20 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
     resolutionIndex: 0,
   });
   const [error, setError] = useState<string | null>(null);
+  const [locationWarning, setLocationWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pickFolder = getBridge()?.pickFolder;
+
+  // Start in the app's sample-projects folder unless the user already typed a location.
+  useEffect(() => {
+    let active = true;
+    void getDefaultFolder(config).then((result) => {
+      if (!active) return;
+      if (result.ok) setForm((f) => (f.folder ? f : { ...f, folder: result.data.folder }));
+      else setLocationWarning(`[${result.code}] Could not load the default location: ${result.message} Choose a location manually.`);
+    });
+    return () => { active = false; };
+  }, [config]);
 
   const update = <K extends keyof NewProjectForm>(key: K, value: NewProjectForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -54,7 +66,7 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
       fpsFromFirstImport: form.matchFirstImport,
     });
     setBusy(false);
-    if (!result.ok) return setError(result.message);
+    if (!result.ok) return setError(`[${result.code}] ${result.message}`);
     onCreated(result.data);
   };
 
@@ -77,6 +89,7 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
             {pickFolder && <button type="button" onClick={() => void browse()}>Browse…</button>}
           </span>
         </label>
+        {!form.folder.trim() && locationWarning && <p role="status" className="error">{locationWarning}</p>}
         <label>
           Resolution
           <select value={form.resolutionIndex} onChange={(e) => update("resolutionIndex", Number(e.target.value))}>

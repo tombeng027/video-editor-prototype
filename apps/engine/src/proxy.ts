@@ -111,6 +111,7 @@ export class ProxyManager {
     this.active = controller;
     const part = `${job.outFile}.part`;
     this.set({ assetId: job.assetId, state: "running", percent: 0 });
+    let published = false;
     let last = -1;
     try {
       await this.runner({
@@ -128,16 +129,26 @@ export class ProxyManager {
       });
       if (generation !== this.generation) throw new Error("cancelled");
       await rename(part, job.outFile);
+      published = true;
+      if (generation !== this.generation) throw new Error("cancelled");
       await job.onDone();
+      if (generation !== this.generation) throw new Error("cancelled");
       this.set({ assetId: job.assetId, state: "done", percent: 100 });
     } catch (e) {
-      await rm(part, { force: true });
+      let message = e instanceof Error ? e.message : "Proxy generation failed.";
+      for (const file of published ? [part, job.outFile] : [part]) {
+        try { await rm(file, { force: true }); }
+        catch (cleanupError) {
+          message += ` Proxy cleanup failed (${file}): ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
+          console.error(message);
+        }
+      }
       if (generation === this.generation) {
         this.set({
           assetId: job.assetId,
           state: "failed",
           percent: 0,
-          message: e instanceof Error ? e.message : "Proxy generation failed.",
+          message,
         });
       }
     } finally {

@@ -1,8 +1,10 @@
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type EngineConfig = {
   dataDir: string;
+  projectsDir: string;
   exitWhenParentGone: boolean;
   host: string;
   port: number;
@@ -29,11 +31,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`Invalid ENGINE_PORT: ${env.ENGINE_PORT}`);
   }
+  if (env.PROJECTS_DIR && !path.isAbsolute(env.PROJECTS_DIR)) {
+    throw new Error("PROJECTS_DIR must be an absolute path.");
+  }
   return {
     // Loopback only; LAN access is a future opt-in.
     host: "127.0.0.1",
     port,
     dataDir: env.ENGINE_DATA_DIR || path.join(os.homedir(), ".video-editor-prototype"),
+    // Default home for new projects: the repo's sample-projects folder.
+    projectsDir: env.PROJECTS_DIR || fileURLToPath(new URL("../../../sample-projects", import.meta.url)),
     exitWhenParentGone: env.ENGINE_EXIT_WHEN_PARENT_GONE === "1",
     token: env.ENGINE_TOKEN || "dev-token",
     allowedOrigins: env.ENGINE_ALLOWED_ORIGINS

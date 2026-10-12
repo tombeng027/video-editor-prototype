@@ -19,6 +19,7 @@ export function runFfmpeg(input: FfmpegRun): Promise<void> {
     });
     let buffer = "";
     let errorTail = "";
+    let processError: Error | undefined;
     child.stdout.on("data", (chunk: Buffer) => {
       buffer += chunk.toString();
       const lines = buffer.split("\n");
@@ -34,9 +35,9 @@ export function runFfmpeg(input: FfmpegRun): Promise<void> {
     child.stderr.on("data", (chunk: Buffer) => {
       errorTail = (errorTail + chunk.toString()).slice(-600);
     });
-    child.on("error", (e) => reject(e));
+    child.on("error", (e) => { processError = e; });
     child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(errorTail.trim().split("\n").pop() || `ffmpeg exited with ${code}`)),
+      processError ? reject(processError) : code === 0 ? resolve() : reject(new Error(errorTail.trim().split("\n").pop() || `ffmpeg exited with ${code}`)),
     );
   });
 }

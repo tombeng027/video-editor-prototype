@@ -11,6 +11,7 @@ const EXPORT_STATUS = {
   TOO_MANY_CUTS: 422,
   MISSING_ASSET: 422,
   EXPORT_BUSY: 409,
+  EXPORT_CANCELLED: 409,
 } as const;
 
 export function registerExportRoutes(app: FastifyInstance, session: ProjectSession, exporter: Exporter) {

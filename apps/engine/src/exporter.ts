@@ -1,4 +1,5 @@
-import { rename, rm, stat } from "node:fs/promises";
+import { link, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ExportState, OfflineAsset, Project } from "@ve/schema";
 import { buildRenderPlan, framesToSeconds, planAssetIds } from "@ve/timeline-core";
@@ -15,7 +16,7 @@ export type DurationProbe = (file: string) => Promise<number>;
 
 export class ExportError extends Error {
   constructor(
-    readonly code: "EMPTY_TIMELINE" | "OFFLINE_MEDIA" | "EXPORT_BUSY" | "TOO_MANY_CUTS" | "MISSING_ASSET",
+    readonly code: "EMPTY_TIMELINE" | "OFFLINE_MEDIA" | "EXPORT_BUSY" | "TOO_MANY_CUTS" | "MISSING_ASSET" | "EXPORT_CANCELLED",
     message: string,
   ) {
     super(message);
@@ -71,41 +72,59 @@ export class Exporter {
   }
 
   /** Validates, then starts in the background; throws `ExportError` when export cannot begin. */
-  async start(): Promise<ExportState> {
+  start(): Promise<ExportState> {
     const open = this.session.open;
-    if (!open) throw new SessionError("NO_PROJECT", "No project is open.");
-    if (this.active) throw new ExportError("EXPORT_BUSY", "An export is already running.");
+    if (!open) return Promise.reject(new SessionError("NO_PROJECT", "No project is open."));
+    if (this.active) return Promise.reject(new ExportError("EXPORT_BUSY", "An export is already running or settling."));
 
     const plan = buildRenderPlan(open.project);
-    if (plan.segments.length === 0) throw new ExportError("EMPTY_TIMELINE", "The timeline is empty. Add a clip before exporting.");
+    if (plan.segments.length === 0) return Promise.reject(new ExportError("EMPTY_TIMELINE", "The timeline is empty. Add a clip before exporting."));
 
-    const used = new Set(planAssetIds(plan));
-    const offline = (await findOfflineAssets(open.folder, open.project)).filter((a) => used.has(a.assetId));
-    if (offline.length > 0) {
-      const list = offline.map((a) => `${a.name} (${a.path})`).join("; ");
-      throw new ExportError("OFFLINE_MEDIA", `These source files are missing: ${list}. Restore them and try again.`);
-    }
-
-    const assets = new Map<string, ExportAsset>(
-      open.project.assets.map((a) => [a.id, { path: resolveAssetPath(open.folder, a), hasAudio: a.hasAudio }]),
-    );
-    const outFile = path.join(open.folder, "exports", exportFileName(open.project.name, this.now()));
+    const outFile = path.join(open.folder, "exports", exportFileName(open.project.name, this.now()).replace(/\.mp4$/, `-${randomUUID()}.mp4`));
     const part = `${outFile}.part`;
-    let args: string[];
-    try {
-      args = buildExportArgs(plan, assets, part);
-    } catch (e) {
-      if (e instanceof ExportPlanError) throw new ExportError(e.code, e.message);
-      throw e;
-    }
-
     const controller = new AbortController();
+    const epoch = this.epoch;
+    const version = this.session.version;
     this.active = controller;
     this.current = { state: "running", percent: 0 };
-    const expectedSeconds = framesToSeconds(plan.totalFrames, plan.fps);
-    const frameSeconds = framesToSeconds(1, plan.fps);
-    this.done = this.execute({ args, part, outFile, controller, expectedSeconds, frameSeconds });
-    return this.current;
+    const assertCurrent = () => {
+      if (controller.signal.aborted || epoch !== this.epoch) {
+        throw new ExportError("EXPORT_CANCELLED", "Export was cancelled before completion.");
+      }
+      this.session.assertVersion(version);
+    };
+    return new Promise<ExportState>((resolve, reject) => {
+      this.done = (async () => {
+        try {
+          const used = new Set(planAssetIds(plan));
+          const offline = (await findOfflineAssets(open.folder, open.project)).filter((a) => used.has(a.assetId));
+          assertCurrent();
+          if (offline.length) {
+            throw new ExportError("OFFLINE_MEDIA", `These source files are missing: ${offline.map((a) => `${a.name} (${a.path})`).join("; ")}. Restore them and try again.`);
+          }
+          const assets = new Map<string, ExportAsset>(
+            open.project.assets.map((a) => [a.id, { path: resolveAssetPath(open.folder, a), hasAudio: a.hasAudio }]),
+          );
+          const args = buildExportArgs(plan, assets, part);
+          resolve(this.current);
+          await this.execute({
+            args, part, outFile, controller, epoch, assertCurrent,
+            expectedSeconds: framesToSeconds(plan.totalFrames, plan.fps),
+            frameSeconds: framesToSeconds(1, plan.fps),
+          });
+        } catch (error) {
+          const failure = error instanceof ExportPlanError ? new ExportError(error.code, error.message) : error;
+          if (epoch === this.epoch) {
+            this.current = controller.signal.aborted
+              ? { state: "cancelled", percent: 0 }
+              : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: failure instanceof Error ? failure.message : "Export failed." };
+          }
+          reject(failure);
+        } finally {
+          if (this.active === controller) this.active = null;
+        }
+      })();
+    });
   }
 
   cancel(): ExportState {
@@ -118,10 +137,13 @@ export class Exporter {
     part: string;
     outFile: string;
     controller: AbortController;
+    epoch: number;
+    assertCurrent: () => void;
     expectedSeconds: number;
     frameSeconds: number;
   }): Promise<void> {
-    const epoch = this.epoch;
+    const epoch = job.epoch;
+    let published = false;
     let last = -1;
     try {
       await this.runner({
@@ -137,23 +159,34 @@ export class Exporter {
           }
         },
       });
+      job.assertCurrent();
       const actual = await this.probeDuration(job.part);
+      job.assertCurrent();
       if (!durationMatches(actual, job.expectedSeconds, job.frameSeconds)) {
         throw new Error(
           `The exported file is ${actual.toFixed(2)}s long but the timeline is ${job.expectedSeconds.toFixed(2)}s. The file was discarded.`,
         );
       }
-      if (epoch !== this.epoch) throw new Error("cancelled");
-      await rename(job.part, job.outFile);
+      // Linking publishes without replacing an existing output; both paths are on the same volume.
+      await link(job.part, job.outFile);
+      published = true;
+      job.assertCurrent();
+      await rm(job.part);
+      job.assertCurrent();
       this.current = { state: "done", percent: 100, outputPath: job.outFile };
     } catch (e) {
-      await rm(job.part, { force: true });
-      if (epoch !== this.epoch) return;
-      this.current = job.controller.signal.aborted
+      const cleanupErrors: string[] = [];
+      for (const file of published ? [job.part, job.outFile] : [job.part]) {
+        try { await rm(file, { force: true }); }
+        catch (error) { cleanupErrors.push(`${file}: ${error instanceof Error ? error.message : String(error)}`); }
+      }
+      if (cleanupErrors.length) {
+        const message = `Export did not complete. Cleanup failed: ${cleanupErrors.join("; ")}`;
+        if (epoch === this.epoch) this.current = { state: "failed", percent: 0, code: "EXPORT_CLEANUP_FAILED", message };
+        else console.error(`EXPORT_CLEANUP_FAILED: ${message}`);
+      } else if (epoch === this.epoch) this.current = job.controller.signal.aborted
         ? { state: "cancelled", percent: 0 }
         : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: e instanceof Error ? e.message : "Export failed." };
-    } finally {
-      if (this.active === job.controller) this.active = null;
     }
   }
 
@@ -161,7 +194,6 @@ export class Exporter {
   reset() {
     this.epoch++;
     this.active?.abort();
-    this.active = null;
     this.current = { state: "idle", percent: 0 };
   }
 }

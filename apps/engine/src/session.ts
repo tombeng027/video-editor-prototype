@@ -15,7 +15,7 @@ import type { RecentProjects } from "./recent.js";
 
 export class SessionError extends Error {
   constructor(
-    readonly code: "NO_PROJECT" | "INVALID_PATH",
+    readonly code: "NO_PROJECT" | "INVALID_PATH" | "PROJECT_CHANGED",
     message: string,
   ) {
     super(message);
@@ -28,8 +28,9 @@ export type CommandOutcome =
 
 /** Owns the single open project: the engine copy is the source of truth for `project.json`. */
 export class ProjectSession {
-  private current: { folder: string; project: Project } | null = null;
+  private current: ProjectResponse | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+  private generation = 0;
 
   constructor(private readonly recent: RecentProjects) {}
 
@@ -52,8 +53,27 @@ export class ProjectSession {
 
   get open(): ProjectResponse | null {
     return this.current
-      ? { folder: this.current.folder, project: this.current.project, recoveredFromBackup: false }
+      ? { ...this.current }
       : null;
+  }
+
+  private async updateRecent(folder: string, name: string): Promise<NonNullable<ProjectResponse["warnings"]>> {
+    try {
+      await this.recent.add(folder, name);
+      return [];
+    } catch (error) {
+      return [{ code: "RECENT_UPDATE_FAILED", message: `The project is open and saved, but its recent-list entry could not be updated. ${error instanceof Error ? error.message : String(error)}` }];
+    }
+  }
+
+  get version(): number {
+    return this.generation;
+  }
+
+  assertVersion(version: number): void {
+    if (version !== this.generation || !this.current) {
+      throw new SessionError("PROJECT_CHANGED", "The project changed while this operation was running. Retry in the intended project.");
+    }
   }
 
   create(req: CreateProjectRequest): Promise<ProjectResponse> {
@@ -68,9 +88,10 @@ export class ProjectSession {
         fpsFromFirstImport: req.fpsFromFirstImport,
       });
       await createProjectFolder(folder, project);
-      this.current = { folder, project };
-      await this.recent.add(folder, project.name);
-      return { folder, project, recoveredFromBackup: false };
+      this.current = { folder, project, recoveredFromBackup: false };
+      this.generation++;
+      this.current.warnings = await this.updateRecent(folder, project.name);
+      return { ...this.current };
     });
   }
 
@@ -78,21 +99,23 @@ export class ProjectSession {
     return this.run(async () => {
       const folder = ProjectSession.resolveFolder(rawFolder);
       const { project, recoveredFromBackup } = await readProject(folder);
-      this.current = { folder, project };
-      await this.recent.add(folder, project.name);
-      return { folder, project, recoveredFromBackup };
+      this.current = { folder, project, recoveredFromBackup };
+      this.generation++;
+      this.current.warnings = await this.updateRecent(folder, project.name);
+      return { ...this.current };
     });
   }
 
   /** Applies commands atomically and autosaves; an invalid batch changes nothing. */
-  apply(commands: Command[]): Promise<CommandOutcome> {
+  apply(commands: Command[] | ((project: Project) => Command[]), version?: number): Promise<CommandOutcome> {
     return this.run(async () => {
+      if (version !== undefined) this.assertVersion(version);
       const { folder, project } = this.require();
-      const result = applyCommands(project, commands);
+      const result = applyCommands(project, typeof commands === "function" ? commands(project) : commands);
       if (!result.ok) return result;
       const next = { ...result.project, updatedAt: new Date().toISOString() };
       await writeProject(folder, next);
-      this.current = { folder, project: next };
+      this.current = { ...this.require(), project: next, recoveredFromBackup: false };
       return { ok: true, project: next, inverse: result.inverse };
     });
   }
@@ -101,12 +124,14 @@ export class ProjectSession {
     return this.run(async () => {
       const { folder, project } = this.require();
       await writeProject(folder, project);
+      this.current = { ...this.require(), recoveredFromBackup: false };
     });
   }
 
   close(): Promise<void> {
     return this.run(async () => {
       this.current = null;
+      this.generation++;
     });
   }
 }

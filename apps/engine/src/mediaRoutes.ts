@@ -4,7 +4,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { ImportRequestSchema, type ApiError, type ProxyState } from "@ve/schema";
-import { Importer } from "./importer.js";
+import { Importer, ImportError } from "./importer.js";
 import type { ProxyManager } from "./proxy.js";
 import { SessionError, type ProjectSession } from "./session.js";
 
@@ -45,6 +45,7 @@ export function registerMediaRoutes(
       return await importer.importFiles(parsed.data);
     } catch (e) {
       if (e instanceof SessionError) return reply.code(409).send(apiError(e.code, e.message));
+      if (e instanceof ImportError) return reply.code(500).send(apiError(e.code, e.message));
       throw e;
     }
   });
