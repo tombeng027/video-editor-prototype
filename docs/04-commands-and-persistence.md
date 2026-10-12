@@ -66,13 +66,16 @@ MyProject/
 | `POST /project/create` | Create the folder layout and an empty project. Existing main or backup prevents creation (`ALREADY_EXISTS`). Successful response may include nonfatal recent-index warnings. |
 | `POST /project/open` | Open a validated main/backup (`NOT_FOUND`, `CORRUPT`, `STORE_IO_FAILED`). Successful response may include nonfatal recent-index warnings. |
 | `POST /project/commands` | Apply a command batch atomically, autosave, return `{project, inverse}`. Invalid batches return 422 with a command error code. |
-| `POST /project/save` / `POST /project/close` | Manual save (`SAVE_FAILED` / `SAVE_CLEANUP_FAILED`), and close the open project. |
+| `POST /project/save` | Manual save (`SAVE_FAILED` / `SAVE_CLEANUP_FAILED`). |
+| `POST /project/close` | Body may include `{expectedProject: {id, folder}}`. Current client always sends its known identity; mismatch inside the session queue returns `PROJECT_CHANGED` without closing the other project or running close hooks. No body/empty body remains compatible with older callers. No active project permits a cleanup-confirmation retry. `{ok: true}` is returned only after close hooks settle; hook/transport failure may occur after the session already closed. |
 | `GET /project` / `GET /projects/recent` | Current project, and the recent list. |
 | `POST /project/import` | Import files by reference or copy. Body: `{paths, mode}`. Probes each file with ffprobe, rejects duplicates (quick content hash) and unsupported files per file without failing the batch, adds the assets in one command batch and queues proxies. Returns `{project, imported, failed}`. |
 | `GET /project/proxies` / `GET /project/events` | Proxy progress as a list, and as server-sent events (`event: proxy`). The token goes in the `?token=` query. |
 | `GET /media/:assetId/proxy` | Serves the proxy with HTTP range support (206/416), for `<video>` seeking. |
 
 Folder and file paths must be absolute. All routes need the session token.
+
+The current client keeps a native recovery modal until close completion is confirmed, with 15-second close/status deadlines. Failure requires an authoritative `GET /project` before retry: no project means session closed but cleanup is still unconfirmed; same project allows guarded retry; a different project is adopted explicitly with a warning rather than blindly closed. A client timeout/abort does not undo engine work. This does not certify simultaneous multi-client lifecycle control or supply general mutation reconciliation.
 
 ### Import details (implemented)
 

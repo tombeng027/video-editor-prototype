@@ -12,12 +12,15 @@ import { NewProjectDialog } from "./NewProjectDialog.js";
 import { Landing } from "./Landing.js";
 import { Editor } from "./Editor.js";
 import { ExportDialog } from "./ExportDialog.js";
+import { App } from "../App.js";
 
 vi.mock("../projectApi.js", () => ({
   createProject: vi.fn(), getDefaultFolder: vi.fn(), listRecent: vi.fn(), openProject: vi.fn(),
   getMediaStatus: vi.fn(), getProject: vi.fn(), sendCommands: vi.fn(),
   startExport: vi.fn(), getExport: vi.fn(), cancelExport: vi.fn(),
+  closeProject: vi.fn(),
 }));
+vi.mock("../useHealth.js", () => ({ useHealth: () => health }));
 vi.mock("../useProxyStatus.js", () => ({ useProxyStatus: () => new Map() }));
 vi.mock("./Preview.js", () => ({ Preview: () => <div>Preview fixture</div> }));
 
@@ -58,6 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   bridge(undefined);
 });
@@ -205,6 +209,142 @@ describe("creation owns its pending interaction", () => {
 });
 
 describe("export dialog input isolation", () => {
+  async function startRunning() {
+    vi.mocked(api.startExport).mockResolvedValue({ ok: true, data: { state: "running", percent: 0 } });
+    render(<ExportDialog config={config} onClose={vi.fn()} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start export" })));
+  }
+
+  it("never overlaps polls, displays coded failures and retries to a terminal result", async () => {
+    vi.useFakeTimers();
+    const poll = deferred<Awaited<ReturnType<typeof api.getExport>>>();
+    vi.mocked(api.getExport).mockReturnValueOnce(poll.promise);
+    await startRunning();
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(api.getExport).toHaveBeenCalledTimes(1);
+    await act(async () => poll.resolve({ ok: false, code: "UNREACHABLE", message: "Engine unavailable" }));
+    expect(screen.getByRole("alert").textContent).toContain("[UNREACHABLE]");
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(api.getExport).toHaveBeenCalledTimes(1);
+    vi.mocked(api.getExport).mockResolvedValueOnce({ ok: true, data: { state: "done", percent: 100, outputPath: "C:\\done.mp4" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry status check" })));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(screen.getByRole("status").textContent).toContain("Export finished");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(api.getExport).toHaveBeenCalledTimes(2);
+  });
+
+  describe("project close recovery", () => {
+    async function openApp() {
+      vi.mocked(api.openProject).mockResolvedValue({ ok: true, data: response });
+      await act(async () => render(<App />));
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: /Recent/ })));
+    }
+
+    it("locks navigation until close confirms success and suppresses duplicate close", async () => {
+      const result = deferred<Awaited<ReturnType<typeof api.closeProject>>>();
+      vi.mocked(api.closeProject).mockReturnValueOnce(result.promise);
+      await openApp();
+      fireEvent.click(screen.getByRole("button", { name: /Projects/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Projects/ }));
+      expect(api.closeProject).toHaveBeenCalledTimes(1);
+      expect(api.closeProject).toHaveBeenCalledWith(expect.anything(), { id: response.project.id, folder: response.folder });
+      expect(screen.getByRole("dialog", { name: "Close project" })).toBeDefined();
+      await userEvent.setup().keyboard("{Escape}");
+      expect(screen.queryByRole("button", { name: "Create new project" })).toBeNull();
+      await act(async () => result.resolve({ ok: true, data: { ok: true } }));
+      expect(screen.getByRole("button", { name: "Create new project" })).toBeDefined();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("requires successful authoritative checking before retrying close, including post-commit failure", async () => {
+      vi.mocked(api.closeProject).mockResolvedValueOnce({ ok: false, code: "REQUEST_TIMEOUT", message: "Timed out" });
+      vi.mocked(api.getProject)
+        .mockResolvedValueOnce({ ok: false, code: "UNREACHABLE", message: "Unavailable" })
+        .mockResolvedValueOnce({ ok: false, code: "NO_PROJECT", message: "No project open" });
+      await openApp();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: /Projects/ })));
+      expect(screen.getByRole("alert").textContent).toContain("[REQUEST_TIMEOUT]");
+      expect(screen.queryByRole("button", { name: "Retry close" })).toBeNull();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project status" })));
+      expect(screen.getByRole("alert").textContent).toContain("[UNREACHABLE]");
+      expect(screen.queryByRole("button", { name: "Retry close" })).toBeNull();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project status" })));
+      expect(screen.getByRole("alert").textContent).toContain("cleanup was not confirmed");
+      vi.mocked(api.closeProject).mockResolvedValueOnce({ ok: true, data: { ok: true } });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry close" })));
+      expect(api.closeProject).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("button", { name: "Create new project" })).toBeDefined();
+    });
+
+    it("allows retry for the same project but adopts a different project without closing it", async () => {
+      vi.mocked(api.closeProject).mockResolvedValue({ ok: false, code: "CLOSE_FAILED", message: "Failed" });
+      vi.mocked(api.getProject).mockResolvedValueOnce({ ok: true, data: response });
+      await openApp();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: /Projects/ })));
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project status" })));
+      expect(screen.getByRole("button", { name: "Retry close" })).toBeDefined();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry close" })));
+      const other = { ...response, folder: "C:\\Other", project: { ...response.project, id: "other", name: "Other" } };
+      vi.mocked(api.getProject).mockResolvedValueOnce({ ok: true, data: other });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project status" })));
+      expect(screen.queryByRole("button", { name: "Retry close" })).toBeNull();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Use active project" })));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByText("Other", { selector: "strong" })).toBeDefined();
+      expect(screen.getByText(/\[PROJECT_RECONCILED\]/)).toBeDefined();
+      expect(api.closeProject).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("ignores a stale pre-cancel poll and waits for cleanup after cancellation acknowledgement", async () => {
+    vi.useFakeTimers();
+    const poll = deferred<Awaited<ReturnType<typeof api.getExport>>>();
+    const cancel = deferred<Awaited<ReturnType<typeof api.cancelExport>>>();
+    vi.mocked(api.getExport).mockReturnValueOnce(poll.promise);
+    vi.mocked(api.cancelExport).mockReturnValueOnce(cancel.promise);
+    await startRunning();
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel export" }));
+    fireEvent.click(screen.getByRole("button", { name: "Requesting cancellation..." }));
+    expect(api.cancelExport).toHaveBeenCalledTimes(1);
+    await act(async () => cancel.resolve({ ok: true, data: { state: "running", percent: 20 } }));
+    expect(screen.getByRole("status").textContent).toContain("cleanup");
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    await act(async () => poll.resolve({ ok: true, data: { state: "done", percent: 100, outputPath: "C:\\obsolete.mp4" } }));
+    expect(screen.queryByText(/obsolete/)).toBeNull();
+    vi.mocked(api.getExport).mockResolvedValueOnce({ ok: true, data: { state: "cancelled", percent: 0 } });
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(screen.getByRole("status").textContent).toContain("Export cancelled");
+    expect(screen.getByRole("button", { name: "Close" })).toBeDefined();
+  });
+
+  it("surfaces cancel rejection, guards duplicates and keeps checking authoritative state", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.cancelExport).mockResolvedValueOnce({ ok: false, code: "UNREACHABLE", message: "Engine unavailable" });
+    await startRunning();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Cancel export" })));
+    expect(screen.getByRole("alert").textContent).toContain("[UNREACHABLE]");
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    vi.mocked(api.getExport).mockResolvedValueOnce({ ok: true, data: { state: "done", percent: 100, outputPath: "C:\\done.mp4" } });
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(screen.getByRole("status").textContent).toContain("Export finished");
+  });
+
+  it("stops polling after unmount even with a late response", async () => {
+    vi.useFakeTimers();
+    const poll = deferred<Awaited<ReturnType<typeof api.getExport>>>();
+    vi.mocked(api.getExport).mockReturnValueOnce(poll.promise);
+    await startRunning();
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    cleanup();
+    await act(async () => poll.resolve({ ok: true, data: { state: "running", percent: 30 } }));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(api.getExport).toHaveBeenCalledTimes(1);
+  });
+
   it("locks start/close during preflight, blocks duplicate start and unlocks on failure", async () => {
     const start = deferred<Awaited<ReturnType<typeof api.startExport>>>();
     vi.mocked(api.startExport).mockReturnValue(start.promise);

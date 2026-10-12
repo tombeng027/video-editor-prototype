@@ -38,6 +38,11 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export const OpenProjectRequestSchema = z.object({ folder: z.string().min(1) });
 export type OpenProjectRequest = z.infer<typeof OpenProjectRequestSchema>;
 
+export const CloseProjectRequestSchema = z.object({
+  expectedProject: z.object({ id: z.string().min(1), folder: z.string().min(1) }).optional(),
+});
+export type CloseProjectRequest = z.infer<typeof CloseProjectRequestSchema>;
+
 export const ProjectResponseSchema = z.object({
   folder: z.string(),
   project: ProjectSchema,

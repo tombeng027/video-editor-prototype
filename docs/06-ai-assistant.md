@@ -23,9 +23,9 @@ The assistant can be asked to run in conversational-only mode (a toggle in the p
 
 - The engine calls the Ollama HTTP API and streams tokens to the client.
 - **Default model: `qwen3:8b`**, fallback `llama3.1:8b`. Confirm both are available in the Ollama library before pulling. The model name is a setting.
-  - Reliable tool calling and JSON output, and Ollama can constrain output to a JSON schema, which the action proposals depend on.
-  - 8B fits a typical 16 GB RAM machine or a GPU with about 8 GB VRAM, leaving room for CLIP and FFmpeg.
-  - Good enough for general editing Q&A, the other half of the assistant's job.
+  - Tool calling and constrained JSON are selection goals; verify the exact model/runtime combination against the proposal evaluation set before relying on them.
+  - A 16 GB RAM machine or roughly 8 GB VRAM is an initial testing target, not a measured requirement or fit guarantee. Quantization, context length, runtime overhead and concurrent vision work must be measured before publishing hardware recommendations.
+  - General editing Q&A quality must be evaluated; model selection is provisional.
   - Qwen3's "thinking" mode is disabled for chat and proposals to keep latency low.
   - Llama 3.1 8B is the fallback and a second model to compare against in the evaluation set.
 - The model is given **one tool**, `propose_jump_cut`, through Ollama's tool-calling support. Plain answers stream as normal text, and a tool call becomes an action card. This avoids forcing every reply into a JSON schema, which would break token streaming. M4 verifies that the chosen model streams text and emits tool calls reliably; if not, fall back to a non-streamed structured-output classification step.

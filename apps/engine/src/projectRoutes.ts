@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   CommandsRequestSchema,
+  CloseProjectRequestSchema,
   CreateProjectRequestSchema,
   OpenProjectRequestSchema,
   type ApiError,
@@ -107,9 +108,15 @@ export function registerProjectRoutes(
     }
   });
 
-  app.post("/project/close", async () => {
-    await session.close();
-    await hooks.onClosed();
-    return { ok: true };
+  app.post("/project/close", async (req, reply) => {
+    const parsed = CloseProjectRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return invalid(reply, "Invalid expected project for close.");
+    try {
+      await session.close(parsed.data.expectedProject);
+      await hooks.onClosed();
+      return { ok: true };
+    } catch (error) {
+      return sendFailure(reply, error);
+    }
   });
 }

@@ -103,7 +103,7 @@ export function Editor({ config, project: initialProject, folder, health, warnin
     setSizes((s) => ({ ...s, [key]: clampSize(key, value) }));
 
   const { assetsWidth, assistantWidth, timelineHeight, assistantOpen } = sizes;
-  const exportReason = exportDisabledReason(project, offline.size);
+  const exportReason = exportDisabledReason(project, offline);
 
   return (
     <div className="editor">

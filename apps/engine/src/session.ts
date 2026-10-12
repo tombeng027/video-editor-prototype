@@ -6,6 +6,7 @@ import {
 import type {
   Command,
   CommandError,
+  CloseProjectRequest,
   CreateProjectRequest,
   Project,
   ProjectResponse,
@@ -128,8 +129,14 @@ export class ProjectSession {
     });
   }
 
-  close(): Promise<void> {
+  close(expectedProject?: CloseProjectRequest["expectedProject"]): Promise<void> {
     return this.run(async () => {
+      if (expectedProject && this.current && (
+        this.current.project.id !== expectedProject.id ||
+        this.current.folder !== ProjectSession.resolveFolder(expectedProject.folder)
+      )) {
+        throw new SessionError("PROJECT_CHANGED", "A different project is open. Check the active project before retrying close.");
+      }
       this.current = null;
       this.generation++;
     });

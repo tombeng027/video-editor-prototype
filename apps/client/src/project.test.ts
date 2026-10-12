@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { createProject, getDefaultFolder, listRecent, sendCommands } from "./projectApi.js";
+import { describe, expect, it, vi } from "vitest";
+import { cancelExport, closeProject, createProject, getDefaultFolder, getExport, getProject, listRecent, RECOVERY_TIMEOUT_MS, sendCommands } from "./projectApi.js";
 import { FPS_PRESETS, projectFolderFor, validateNewProject } from "./presets.js";
 
 const config = { url: "http://engine", token: "tok" };
@@ -26,6 +26,63 @@ describe("presets", () => {
 });
 
 describe("projectApi", () => {
+  it("sends the expected project identity with guarded close", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(json(200, { ok: true }));
+    const expected = { id: "p", folder: "C:\\Demo" };
+    expect(await closeProject(config, expected, fetchImpl)).toMatchObject({ ok: true });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toEqual({ expectedProject: expected });
+  });
+
+  it("retains close failures and requires a confirmed true success", async () => {
+    expect(await closeProject(config, undefined, json(200, { ok: true }))).toEqual({ ok: true, data: { ok: true } });
+    expect(await closeProject(config, undefined, json(200, { ok: false }))).toMatchObject({ ok: false, code: "BAD_RESPONSE" });
+    expect(await closeProject(config, undefined, json(500, { error: { code: "CLOSE_FAILED", message: "Cleanup incomplete" } })))
+      .toEqual({ ok: false, code: "CLOSE_FAILED", message: "Cleanup incomplete" });
+    expect(await getProject(config, json(404, { error: { code: "NO_PROJECT", message: "No project" } })))
+      .toMatchObject({ ok: false, code: "NO_PROJECT" });
+  });
+
+  it("bounds recovery reads/mutations at exactly 15 seconds and aborts outstanding requests", async () => {
+    vi.useFakeTimers();
+    try {
+      const close = (c: typeof config, f: typeof fetch) => closeProject(c, undefined, f);
+      for (const operation of [close, getProject, getExport, cancelExport]) {
+        let signal: AbortSignal | null | undefined;
+        const fetchImpl: typeof fetch = (_input, init) => {
+          signal = init?.signal;
+          return new Promise<Response>(() => undefined);
+        };
+        let settled = false;
+        const result = operation(config, fetchImpl).then((r) => { settled = true; return r; });
+        await vi.advanceTimersByTimeAsync(RECOVERY_TIMEOUT_MS - 1);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await result).toMatchObject({ ok: false, code: "REQUEST_TIMEOUT" });
+        expect(signal?.aborted).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds a stalled response body and clears deadlines on a successful response", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl: typeof fetch = async () => {
+        const response = new Response();
+        response.json = () => new Promise<unknown>(() => undefined);
+        return response;
+      };
+      const result = closeProject(config, undefined, fetchImpl);
+      await vi.advanceTimersByTimeAsync(RECOVERY_TIMEOUT_MS);
+      expect(await result).toMatchObject({ ok: false, code: "REQUEST_TIMEOUT" });
+      expect(await closeProject(config, undefined, json(200, { ok: true }))).toMatchObject({ ok: true });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns the default location or an explicit failure", async () => {
     expect(await getDefaultFolder(config, json(200, { folder: "C:\\Samples" }))).toEqual({
       ok: true, data: { folder: "C:\\Samples" },

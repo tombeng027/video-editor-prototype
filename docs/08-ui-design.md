@@ -13,11 +13,12 @@ A planned **Settings** dialog (reachable from both screens) will hold the app-le
 
 ### Implemented modal policy
 
-- Create and export use a shared native modal dialog: background controls are inert, Tab/Shift+Tab stay inside, and dismissal restores focus to a still-connected opener. Editor shortcuts do not run behind export.
+- Create, export and project-close recovery use a shared native modal dialog: background controls are inert, Tab/Shift+Tab stay inside, and dismissal restores focus to a still-connected opener. Editor shortcuts do not run behind export.
 - Idle creation can be cancelled with Cancel or Escape. After submission, fields and Cancel are disabled, duplicate submissions/navigation are refused and a Creating status explains that the request cannot be cancelled. Success enters the committed project with any warnings; a reported failure unlocks retry/Cancel.
 - Native folder selection locks conflicting creation/open navigation until it returns. Picker failures show `FOLDER_PICK_FAILED` and allow retry.
-- Export cannot close during start preflight or while running. Running export retains its Cancel export action; engine cancellation semantics are unchanged.
-- Backdrop clicks do not dismiss these dialogs. General request deadlines, uncertain mutation reconciliation, export polling/cancel recovery and full accessibility/screen-reader acceptance remain separate work.
+- Export cannot close during start preflight or while running/status is unknown. Cancel requests are guarded; acknowledgement that still reports running shows cleanup pending rather than cancellation complete. Poll failures expose Retry status check; cancel/status requests time out after 15 seconds.
+- Projects navigation waits for a typed confirmed close, including background cleanup. Close failure/timeout requires Check project status before Retry close. No open project does not prove cleanup finished; retry confirms it. If another project is active, Use active project adopts it with a visible reconciliation warning rather than closing it. Close requests carry the expected ID/folder, checked inside the engine's session queue, preventing a stale retry from closing a different project.
+- Backdrop clicks do not dismiss these dialogs. Close/status requests have 15-second deadlines; aborting the client request does not roll back engine work. Broader request deadlines, create/open/edit/import/export-start uncertainty, event/media recovery and full accessibility/screen-reader acceptance remain separate K24 work.
 
 ## Editor layout (desktop)
 

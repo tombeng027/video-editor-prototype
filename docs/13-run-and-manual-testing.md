@@ -105,7 +105,20 @@ Launcher failures print `[CODE]`, a brief explanation, the log directory, and th
 
 Each launcher invocation creates `sessions\<timestamp-id>\` under the log directory. Its `errors.jsonl` contains UTC timestamp, code, message, and (for fatal errors) script location. Cleanup warnings are logged too. Component stdout/stderr goes to `client.log/.err`, `desktop.log/.err`, and `ollama.log/.err` in that session when started by the launcher. Logs remain local; they are not uploaded automatically. They can contain local paths or other diagnostic details, so review/redact them before sharing.
 
-The New project dialog displays API error codes with submission errors. Default-location warnings are separate and disappear when you supply a location, so late lookup failures cannot replace creation errors. General editor API code display, timeouts and retained unexpected-error logging remain pending (K24/K26).
+The New project dialog displays API error codes with submission errors. Default-location warnings are separate and disappear when you supply a location, so late lookup failures cannot replace creation errors. Export poll/cancel and project-close recovery now show codes, with 15-second deadlines for export status/cancel and project read/close. General editor API code display, other deadlines and retained unexpected-error logging remain pending (K24/K26).
+
+### Export and close recovery acceptance
+
+Use synthetic projects/media, not user work; network fault injection is a test technique rather than a normal workflow.
+
+- Disconnect/intercept export status after start: expect a coded error and Retry status check, with no overlapping polling or dismissible running dialog. Restore the endpoint and retry: expect authoritative progress/terminal state.
+- Delay cancel: repeated clicks must send only one request. A running acknowledgement must show cleanup pending, not success; stale pre-cancel polls must not regress state. Reject cancel: expect its code and continued status checking.
+- Missing unused, fully hidden or audio-track-only assets must not block an otherwise valid export. Missing visible/render-used originals must still block; engine preflight checks actual files.
+- Delay close: Projects navigation stays blocked. Reject/timeout close: expect its code, no landing transition and Check project status before Retry close. Failed status checking must not unlock a blind retry.
+- If the engine reports no project after a failed close, retry must confirm cleanup before navigation. If it reports a different project, Use active project must adopt that project without closing it. A stale expected ID/folder must return `PROJECT_CHANGED` and preserve the current project.
+- Check actual native focus/Tab/Escape/input isolation. Component tests alone do not certify native pickers or screen readers.
+
+`REQUEST_TIMEOUT` means the client deadline expired, not that an engine mutation was cancelled or rolled back. Broader mutation recovery is still K24 work.
 
 #### Import/export lifecycle errors
 

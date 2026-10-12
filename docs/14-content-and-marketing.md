@@ -17,7 +17,7 @@ Bug reports, isolated reproductions, documentation improvements and reviewed cod
 | Create, save, reopen | Implemented, including backup recovery and nonfatal recent-list warnings |
 | Import and proxies | Video/audio reference or copy import; video proxies with progress. Copy-byte progress and disk-space UI are not implemented |
 | Timeline and preview | One-track add/split/delete, scrub/zoom and playback; cut/end correctness and media-error recovery still have known limits |
-| MP4 export | Implemented; lifecycle/cancellation/output regressions pass locally. Polling/cancel recovery and client offline-asset policy remain open; output publication needs filesystem hard-link support |
+| MP4 export | Implemented; lifecycle/output and local polling/cancel-recovery regressions pass. Client and engine use render-used offline policy; start-outcome uncertainty remains K24. Output publication needs filesystem hard-link support |
 | Modal input policy | Component and prior native-browser smoke evidence; not complete screen-reader/native-picker acceptance |
 | Multi-track controls, undo/redo, relink | Planned M3; not demo-ready |
 | AI guidance/proposals/jump-cut candidates | Planned M4-M6; not demo-ready |

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createEmptyProject } from "@ve/timeline-core";
 import { buildApp } from "./app.js";
@@ -18,6 +18,7 @@ import {
 } from "./projectStore.js";
 import type { Probes } from "./probes.js";
 import { RecentProjects } from "./recent.js";
+import { ProxyManager } from "./proxy.js";
 
 let tmp: string;
 beforeEach(async () => {
@@ -153,6 +154,53 @@ describe("project routes", () => {
     fps: { num: 30, den: 1 },
     width: 1920,
     height: 1080,
+  });
+
+  it("refuses stale expected-project closes without affecting the active project and accepts settled retries", async () => {
+    const a = await make();
+    const folderA = path.join(tmp, "A");
+    const folderB = path.join(tmp, "B");
+    const first = (await a.inject({ method: "POST", url: "/project/create", headers, payload: createBody(folderA) })).json();
+    const second = (await a.inject({ method: "POST", url: "/project/create", headers, payload: createBody(folderB) })).json();
+    const stale = await a.inject({ method: "POST", url: "/project/close", headers,
+      payload: { expectedProject: { id: first.project.id, folder: folderA } } });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe("PROJECT_CHANGED");
+    expect((await a.inject({ url: "/project", headers })).json().project.id).toBe(second.project.id);
+    const wrongFolder = await a.inject({ method: "POST", url: "/project/close", headers,
+      payload: { expectedProject: { id: second.project.id, folder: folderA } } });
+    expect(wrongFolder.statusCode).toBe(409);
+    const invalid = await a.inject({ method: "POST", url: "/project/close", headers,
+      payload: { expectedProject: { id: second.project.id } } });
+    expect(invalid.statusCode).toBe(400);
+    const close = { method: "POST", url: "/project/close", headers,
+      payload: { expectedProject: { id: second.project.id, folder: folderB } } } as const;
+    expect((await a.inject(close)).json()).toEqual({ ok: true });
+    expect((await a.inject({ url: "/project", headers })).statusCode).toBe(404);
+    expect((await a.inject(close)).json()).toEqual({ ok: true });
+    expect((await readProject(folderA)).project.id).toBe(first.project.id);
+    expect((await readProject(folderB)).project.id).toBe(second.project.id);
+  });
+
+  it("reports post-commit close cleanup failure and permits confirmation retry without deleting saved work", async () => {
+    const a = await make();
+    const folder = path.join(tmp, "close-recovery");
+    const opened = (await a.inject({ method: "POST", url: "/project/create", headers, payload: createBody(folder) })).json();
+    const request = { method: "POST", url: "/project/close", headers,
+      payload: { expectedProject: { id: opened.project.id, folder } } } as const;
+    const reset = vi.spyOn(ProxyManager.prototype, "reset").mockImplementationOnce(() => {
+      throw new Error("Injected close cleanup failure");
+    });
+    try {
+      const failed = await a.inject(request);
+      expect(failed.statusCode).toBe(500);
+      expect(failed.json().message).toContain("Injected close cleanup failure");
+      expect((await a.inject({ url: "/project", headers })).statusCode).toBe(404);
+      expect((await a.inject(request)).json()).toEqual({ ok: true });
+      expect((await readProject(folder)).project.id).toBe(opened.project.id);
+    } finally {
+      reset.mockRestore();
+    }
   });
 
   it("creates, applies commands with autosave, and reopens the saved state", async () => {
