@@ -1,7 +1,8 @@
 [project]
 name = "vision"
 version = "0.1.0"
-description = "Local vision service for the video editor prototype (CLIP scoring arrives in M4)"
+license = "Apache-2.0"
+description = "Local vision service for the video editor prototype (CLIP scoring planned for M6)"
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "fastapi>=0.115",
