@@ -2,6 +2,8 @@
 
 [Back to index](./README.md)
 
+**Status:** current version-1 field shapes and target semantics. Saved-project loading/saving and atomic command batches share relational validation (K23, verified locally). Split audio, candidate persistence, overlay transforms/compositing and migrations are not implemented end-to-end. See [Review status](./16-review-plan-and-system-status.md).
+
 ## Time rules
 
 - All timeline and source positions are stored as **integer frames** at the project frame rate.
@@ -9,7 +11,7 @@
 - Seconds and `mm:ss` are display/input formats only and are converted at the boundary (UI input, AI action, export).
 - Clip fields (`timelineStart`, `sourceIn`, `sourceOut`) are all in **project frames**. `Asset.durationFrames` is in the asset's **native frames**, and is converted to project frames (one shared rounding helper in `timeline-core`) whenever it is compared with clip ranges.
 - Variable-frame-rate sources are normalised to constant frame rate in their proxy. Export decodes the original and uses exact timestamps converted from project frames.
-- If the project frame rate is set to "from first import", it is fixed when the first video asset is added and then never changes.
+- Automatic frame-rate adoption occurs when the opted-in project receives its first video while the timeline is empty; audio-only assets do not consume this option. The importer plans this inside the authoritative commit queue. `SetProjectFps` still permits changes while there are no clips.
 - Clips on the same track must not overlap (prototype rule).
 
 ## Entities
@@ -87,18 +89,21 @@ type EditList = {
 - Timeline end = max over clips of `timelineStart + duration`.
 - Candidate duration = sum of its segment lengths. Candidates are previewed from the edit list and become timeline clips (pointing at the real source asset) only when inserted. They never appear in `project.assets`, so undoing an insert cannot leave a dangling asset.
 
-## Invariants (enforced by the reducer)
+## Invariants (shared load/save and atomic-batch validation)
 
 - Video and audio clips: `0 <= sourceIn < sourceOut <= asset.durationFrames` (converted to project frames).
 - Image clips: `sourceIn >= 0` and any positive length (images have no inherent duration), so they can be trimmed from either edge.
 - Track `order` values are unique.
-- The project frame rate can only change (`SetProjectFps`) while the timeline has no clips. When `fpsFromFirstImport` is set, the client issues `SetProjectFps` with the first imported video's rate in the same undo step as the import.
+- The project frame rate can only change (`SetProjectFps`) while the timeline has no clips. When adoption conditions above hold, the engine importer issues `SetProjectFps` in the same command batch as the import. Undo history is planned for M3.
 - An audio-track clip may reference a video asset that has audio (the result of "Split audio").
 - No overlapping clips within a track.
 - `timelineStart >= 0`.
 - Clip kind is compatible with its track kind (audio clips on audio tracks, and so on).
 - `transform` is only valid on clips in overlay tracks.
 - IDs are unique within the project.
+- Clip end positions must fit the supported safe-integer frame range.
+- Optional `linkedClipId` must refer to another existing clip, not itself. Reciprocal/audio-link editing behavior remains a future feature; presence is not proof of implemented split audio.
+- Valid locked tracks and unsorted saved clip arrays are accepted; validation sorts a copy for overlap checks. Missing original media does not invalidate the project structure and is reported separately as offline.
 
 ## Frame rate and clip audio
 
@@ -114,4 +119,4 @@ type EditList = {
 
 ## Versioning
 
-`schemaVersion` is stored in `project.json`. Migrations are functions from version N to N+1 applied on open.
+`schemaVersion` is stored in `project.json`; currently only version 1 is accepted. A future migration pipeline will apply version N to N+1 functions on open before the first saved-schema change (K10).

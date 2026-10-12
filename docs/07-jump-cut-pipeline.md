@@ -2,6 +2,8 @@
 
 [Back to index](./README.md)
 
+**Status: planned design for M6.** Only the Python health stub exists today; CLIP, scoring, analysis jobs, cache, candidate review/insertion and on-demand lifecycle are not implemented or benchmarked.
+
 ## Goal
 
 The user gives a start and end timestamp and a description of an action (for example "attaching a keycap"). The system finds the moments in that range where the action appears and builds a sequence of short clips (for example 0.5 s each).

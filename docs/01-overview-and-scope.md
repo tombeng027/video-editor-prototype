@@ -18,10 +18,12 @@
 
 ## Prototype scope
 
+This table describes the target through M6, not today's shipped capabilities. M1-M2 are implemented; M3-M6 remain planned. See [Milestones](./09-milestones.md) for current delivery status.
+
 | Area | In scope |
 |------|----------|
 | Projects | Create, save, open, autosave, missing-media relink |
-| Assets | Import video/audio/image, metadata, proxy generation, temporary candidates from AI actions |
+| Assets | Video/audio import, metadata and proxies are implemented; image import is deferred; temporary AI candidates are planned for M6 |
 | Timeline | Multiple tracks, drag/drop, move, trim, split, undo/redo, snapping |
 | Preview | Playback synced to the playhead, scrub, rate control |
 | Export | Single preset export via FFmpeg with progress and cancel |
@@ -29,7 +31,7 @@
 
 ## Target platform
 
-- **Now:** PC (Windows first; macOS/Linux should work since nothing is OS-specific by design).
+- **Now:** PC, Windows first. Windows is locally tested; Linux CI tests core/engine behavior. macOS and Linux desktop compatibility is not certified. The launch scripts are Windows-specific.
 - **Later:** mobile as remote editor, then standalone. The client/engine separation and the shared schema keep this possible.
 
 ## Glossary

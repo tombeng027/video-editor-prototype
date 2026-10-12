@@ -2,6 +2,8 @@
 
 [Back to index](./README.md)
 
+**Status: planned design for M4-M5.** The current app has health probes and an assistant placeholder, not streaming chat, proposals, tool calls, model fallback/settings or AI history. Analysis/candidates follow in M6.
+
 ## Principles
 
 - **Suggestive first:** the default is conversational guidance. The assistant cannot change the project on its own.

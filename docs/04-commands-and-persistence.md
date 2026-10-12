@@ -4,6 +4,8 @@
 
 ## Command layer
 
+**Delivery status:** SetProjectFps, asset/track add/remove, SetAssetProxy, AddClip, TrimClip, SplitClip and RemoveClip are implemented in the reducer. MoveClip, SplitAudio, SetClipTransform and InsertSequence below are planned. UI currently exposes add, split and delete; trim/track/history UI is not shipped.
+
 Every project change is a typed command applied by a single pure reducer in `timeline-core`. Manual UI edits and AI-confirmed actions use the same commands.
 
 | Command | Effect |
@@ -31,6 +33,8 @@ Rules:
 
 ## Undo and redo
 
+**Planned M3:** inverse commands exist, but client history stacks and Undo/Redo buttons are not functional yet.
+
 - Undo and redo stacks live in the client session, built from inverse commands.
 - Opening a project clears history.
 - AI-originated edits are tagged `source: "ai"` in history so the UI can label them.
@@ -49,18 +53,20 @@ MyProject/
 ```
 
 - `project.json` is written atomically (write to temp, then rename) to avoid corruption.
-- **Autosave:** the engine writes `project.json` after every committed command batch. A rejected batch changes and saves nothing. Each save keeps the previous version as `project.json.bak`.
-- **Recent projects:** the engine keeps a small index (`recent.json`, newest first, capped at 10) in its data directory (`ENGINE_DATA_DIR`, default `~/.video-editor-prototype`). Entries whose folder has gone are shown as "not found".
-- **Open:** load, validate with Zod, then fall back to `project.json.bak` if the main file is unreadable (the UI warns when this happens). Schema migration and media verification are still to do.
+- **Autosave:** the engine writes after every committed command batch. A rejected batch changes and saves nothing. Writes validate shape and relational invariants first, use unique exclusively created temporary files, and atomically replace each file by rename.
+- **Backup safety:** only a validated existing main file may replace `project.json.bak`; the backup is itself written through a temporary file and rename before main replacement. If the main is missing/corrupt (including structurally valid but relationally invalid), the usable backup is left untouched during recovery saves. Replacement failures keep the old in-memory project and allow retry; owned temporary-file cleanup failures are coded and include paths. This is not a power-loss/fsync or multi-engine locking guarantee.
+- **Recent projects:** the engine keeps `recent.json` (newest first, capped at 10) in its data directory (`ENGINE_DATA_DIR`, default `~/.video-editor-prototype`). Availability uses the same main/backup validation as open, so backup-only recoverable projects remain selectable. Missing/unusable projects are disabled. Permission/index errors are explicit, not an empty-list success.
+- **Bookkeeping outcome:** successful create/open returns the project plus optional `{code, message}` warnings when updating recents fails. The editor displays these warnings; the saved project stays active. Damaged indices are preserved, not silently overwritten. There is no automatic index-repair UI; users can open by folder and preserve/rename the reported index.
+- **Open:** Zod shape validation plus shared timeline-core relational checks; fallback to a validated backup for missing/invalid main data (the UI warns). I/O/permission errors are reported distinctly rather than assumed corruption. Schema migration and content-integrity verification/relink remain planned; existence/offline checks are implemented separately.
 
 ### Project API (engine)
 
 | Route | Purpose |
 |---|---|
-| `POST /project/create` | Create the folder layout and an empty project. The folder must not already hold a project (`ALREADY_EXISTS`). |
-| `POST /project/open` | Open a project folder (`NOT_FOUND`, `CORRUPT`). |
+| `POST /project/create` | Create the folder layout and an empty project. Existing main or backup prevents creation (`ALREADY_EXISTS`). Successful response may include nonfatal recent-index warnings. |
+| `POST /project/open` | Open a validated main/backup (`NOT_FOUND`, `CORRUPT`, `STORE_IO_FAILED`). Successful response may include nonfatal recent-index warnings. |
 | `POST /project/commands` | Apply a command batch atomically, autosave, return `{project, inverse}`. Invalid batches return 422 with a command error code. |
-| `POST /project/save` / `POST /project/close` | Manual save, and close the open project. |
+| `POST /project/save` / `POST /project/close` | Manual save (`SAVE_FAILED` / `SAVE_CLEANUP_FAILED`), and close the open project. |
 | `GET /project` / `GET /projects/recent` | Current project, and the recent list. |
 | `POST /project/import` | Import files by reference or copy. Body: `{paths, mode}`. Probes each file with ffprobe, rejects duplicates (quick content hash) and unsupported files per file without failing the batch, adds the assets in one command batch and queues proxies. Returns `{project, imported, failed}`. |
 | `GET /project/proxies` / `GET /project/events` | Proxy progress as a list, and as server-sent events (`event: proxy`). The token goes in the `?token=` query. |
@@ -73,7 +79,7 @@ Folder and file paths must be absolute. All routes need the session token.
 - **Media kinds:** video and audio. Images are rejected for now.
 - **Frame counts:** video durations are native frames at the file's own frame rate (`avg_frame_rate`, reduced rational). Audio uses a 1000/1 millisecond timebase.
 - **Paths:** reference mode stores the absolute path. Copy mode copies into `media/` (name collisions get `-1`, `-2`) and stores a project-relative path, so a copied project can be moved.
-- **Frame rate:** if the project was created with 'match the first imported video' and has no assets or clips, the first imported video's frame rate is applied with `SetProjectFps` in the same batch.
+- **Frame rate:** if the opted-in project has no video assets or clips, the first video's rate is applied with `SetProjectFps` in the same batch; audio-first imports are supported.
 - **Proxy path:** `SetAssetProxy` records `proxies/<assetId>.mp4` once the file exists. It is a normal command, so it is autosaved. Proxies missing on open (deleted, or interrupted) are regenerated automatically.
 
 ## Import modes
@@ -83,7 +89,9 @@ Folder and file paths must be absolute. All routes need the session token.
 - Export output always goes to `exports/`, regardless of import mode.
 - Switching an existing asset between modes is a future feature.
 
-## Media integrity and relinking
+## Media integrity and relinking (target behavior)
+
+**Implemented:** existence checks and offline flags; export checks used original files. **Planned M3:** content verification, relink UI and path-update command. Current checks do not guarantee that a replaced source matches the original.
 
 - On open, the engine checks each asset path exists and the size or hash matches.
 - Missing assets are flagged, not fatal. The project opens with a banner and the clip shows a "missing media" state.
@@ -91,6 +99,8 @@ Folder and file paths must be absolute. All routes need the session token.
 - Proxies are regenerable and never treated as source of truth.
 
 ## Failure handling
+
+This section describes target recovery behavior. Current open uses backup fallback with a warning; reconnect buffering and recovery controls remain planned.
 
 - Corrupt `project.json`: offer to restore the previous autosave backup (`project.json.bak`).
 - Engine disconnect: client shows a reconnect state and keeps unsaved commands in memory.

@@ -16,6 +16,8 @@
 
 ## Decisions made
 
+These include target decisions, not completed features: model fallback, split audio, overlay rendering and vision scoring remain planned. Current implementation and evidence are tracked in [Review status](./16-review-plan-and-system-status.md).
+
 - **Client delivery:** thin Electron desktop wrapper (see [Architecture](./02-architecture.md)).
 - **Media references:** reference by path by default, optional copy into the project (see [Commands and Persistence](./04-commands-and-persistence.md)).
 - **Ollama model:** `qwen3:8b` with `llama3.1:8b` fallback (see [AI Assistant](./06-ai-assistant.md)).
@@ -31,4 +33,4 @@
 
 For later, when captions are designed (see [Captions concept](./15-captions-concept.md)): should captions follow video edits (ripple with the clips they were generated from), or stay fixed on the timeline?
 
-Otherwise none at this time. Revisit after M2 (real import and export behaviour) and M6 (vision and preview measurements).
+Before the next implementation slice, settle the in-app storage-alert interval/deduplication and which drives are monitored. Before M3-C, define the preview/export contract for separate audio, mute/link behavior and compositing. Packaging timing depends on feedback requiring installable builds; no calendar delivery commitments or weekly capacity have been agreed. Revisit vision latency/accuracy after M6 measurements.

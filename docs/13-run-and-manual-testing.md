@@ -11,7 +11,7 @@ How to launch the prototype on a Windows PC and walk through the manual test che
 | Node 22+ (24 tested) and pnpm | Everything | `node -v`, `pnpm -v` |
 | FFmpeg and ffprobe on PATH | Import, proxies, export | `ffmpeg -version`, `ffprobe -version` |
 | Python 3.11-3.12 and `uv` | Vision service (stub for now) | `python -m uv --version` |
-| Ollama with `qwen3:8b` | AI assistant (from M5; not used yet) | `ollama list` |
+| Ollama with `qwen3:8b` | AI assistant (from M4; not used yet) | `ollama list` |
 
 Install FFmpeg with `winget install Gyan.FFmpeg`, then **open a new terminal**. A terminal opened before the install will not see it (known issue K1).
 
@@ -19,6 +19,156 @@ First time only:
 
 ```powershell
 pnpm install
+```
+
+## Quick start (daily use)
+
+One command from the `video-editor` folder starts everything and opens the app:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-app.ps1
+```
+
+- Add `-Ollama` to also start Ollama (only needed from M4, when the assistant is built).
+- To stop: run `powershell -ExecutionPolicy Bypass -File scripts\stop-app.ps1`. It first asks the desktop window to close, allowing the engine to shut down, then stops only launcher-owned processes. Closing the window yourself first is also fine.
+- Add `-Ollama` to stop an Ollama server **started by this launcher**. An existing Ollama service, unrelated Electron apps, manually launched engines/vision services, and other dev servers are left alone.
+- Logs and process identities go to `%LOCALAPPDATA%\VideoEditorPrototype\launcher\<project-key>`. Process IDs are checked against their creation times before stopping them.
+- Descendant identities are recorded before termination, so a retry can stop a surviving child even if its parent has exited. An incomplete shutdown returns a nonzero exit code, not a success message.
+- Duplicate launches and an occupied port 5173 are refused with an error. Client readiness requires an HTTP response from the owned server; desktop startup requires the app window. Startup failures clean up processes started by that attempt.
+- The scripts check Node, pnpm, FFmpeg, ffprobe and local dependencies, and build the desktop before starting. They preserve the current PATH and append refreshed system/user paths.
+- `FFMPEG_PATH` and `FFPROBE_PATH` are honored; ffprobe is inferred beside a custom FFmpeg binary when omitted. With `-Ollama`, a custom `OLLAMA_URL` must already be reachable; the launcher only auto-starts the default local endpoint. Custom `OLLAMA_HOST` setups must be started manually.
+- "App launched" means the client responds and the window is open, not that all component diagnostics are green.
+- If process-state JSON is corrupt, the scripts refuse to guess ownership. Close this app's processes manually, rename the reported `processes.json`, then retry. Never delete state while its owned processes are running.
+- Quick start uses `http://127.0.0.1:5173`. If you set `VE_CLIENT_URL` to a different address, use the manual launch instructions instead.
+- New projects default to `sample-projects\` in this folder. Demo clips live in `demo-media\`. Both are gitignored, so they stay local.
+- What each part is: **FFmpeg** is a command-line tool, not a service, and the engine calls it when needed, so there is nothing to start or stop (it only has to be on PATH). **Engine** is started and stopped by the desktop app. **Vision** stays red until the AI milestones. **Ollama** is only needed from M4.
+
+If the window opens but FFmpeg is red, FFmpeg is not on that terminal's PATH. Open a new terminal (or use the script, which refreshes PATH) and check `ffmpeg -version`.
+
+The manual steps below do the same thing in separate terminals, and are useful for seeing logs.
+
+### Launcher regression checks
+
+With the app and any launcher-owned Ollama stopped, and port 5173 free (port 11434 may be free or serve an existing healthy Ollama):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-launcher.ps1
+```
+
+This briefly opens the app and checks startup, duplicate refusal, port conflicts, process identity checks, owned shutdown, and preservation of an existing Ollama-compatible service. It creates synthetic test servers when needed, does not run AI models, and never stops an existing Ollama. Do not run while using the app.
+
+It also checks readiness timeout, early process exit, and rollback after failed desktop startup. A separate suite lock prevents simultaneous test runs. The Windows CI job runs these checks; desktop availability on the hosted runner is verified by the test itself.
+
+To additionally test real launcher-owned Ollama startup/shutdown, install Ollama, leave port 11434 free, unset `OLLAMA_URL`/`OLLAMA_HOST`, and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-launcher.ps1 -OwnedOllama
+```
+
+This optional test does not run or download a model. It refuses to stop an existing service.
+
+### Error codes and recovery
+
+Launcher failures print `[CODE]`, a brief explanation, the log directory, and this guide's path. Unexpected failures use `LAUNCHER_FAILED`; they are not hidden or treated as successful startup.
+
+| Code | Meaning | Workaround / next action |
+|---|---|---|
+| `ALREADY_RUNNING` | A recorded app process or child is still running | Close your project and run the stop script before restarting |
+| `CLIENT_PORT_BUSY` | Port 5173 belongs to another server | Identify its owner; stop it yourself if appropriate, or use manual launch with a different client configuration |
+| `TESTS_RUNNING` | Regression tests own this project's launcher | Wait for the suite to finish; do not launch the app during tests |
+| `LAUNCHER_BUSY` | Another start/stop operation owns the lock | Wait for it to finish and retry |
+| `STATE_INVALID` | Process-state JSON has invalid structure or identities | Close this app's processes manually; rename the reported state file, then retry; do not guess ownership or delete active state |
+| `CONFIG_INVALID` | Unsupported quick-start URL or relative executable path | Use absolute executable paths or PATH command names; use the manual launch flow for a custom client URL |
+| `TOOL_MISSING` | A required executable cannot be found | Verify PATH, `FFMPEG_PATH`, and `FFPROBE_PATH`; open a new terminal after installation |
+| `DEPENDENCIES_MISSING` | Local Vite/Electron dependencies are missing | Run `pnpm install` in the app folder |
+| `BUILD_FAILED` | Desktop compilation failed before startup | Read the terminal build errors; fix them before retrying |
+| `OLLAMA_UNREACHABLE` | Configured existing Ollama endpoint did not respond | Start the configured service manually, check its URL, or omit `-Ollama` for manual editing |
+| `STARTUP_EXITED` | A launched process exited before readiness | Read the corresponding client/desktop/Ollama logs; verify configuration |
+| `STARTUP_TIMEOUT` | Expected readiness did not arrive in time | Read the logs; check tool availability and any desktop error dialog; stop before retrying |
+| `PROCESS_INSPECTION_FAILED` | Process identity or descendant enumeration could not be verified | Unknown processes are not killed; inspect this app's processes manually and retry with the same user account |
+| `PROCESS_STOP_FAILED` | A recorded process could not be terminated | Retry shutdown; inspect the named PID and permissions if it persists |
+| `STOP_INCOMPLETE` | Cleanup failed or recorded processes remain | Identities are retained for retry; inspect warnings, retry, and verify remaining processes |
+| `LAUNCHER_FAILED` | An unexpected launcher error occurred | Read the error message and diagnostic record; report the code, timestamp and reproduction steps |
+| `PROJECT_LOCATION_UNAVAILABLE` | The default project directory cannot be created | Choose an accessible directory in Location or set absolute `PROJECTS_DIR`; this appears in the New project UI |
+| `LOG_CONFIG_INVALID` | Retention settings are invalid or unreadable; deletion is skipped | Fix the reported JSON file using the defaults below; startup/shutdown can still proceed |
+| `LOG_CLEANUP_SKIPPED` | Logs have unknown metadata, links or inaccessible paths | Inspect the named path; do not remove active logs or process state; unmeasurable usage is reported as a lower bound |
+| `LOG_CLEANUP_INCOMPLETE` | A selected closed session could not be fully removed | Close viewers using its logs, check permissions and retry cleanup |
+| `LOG_STORAGE_LIMIT_EXCEEDED` | Log usage remains above the soft target | Preview cleanup, review protected/legacy logs, or increase the configured target |
+| `DISK_SPACE_LOW` | Free space on the log-storage drive is below the threshold | Free space on that drive; log cleanup may not be enough |
+
+Each launcher invocation creates `sessions\<timestamp-id>\` under the log directory. Its `errors.jsonl` contains UTC timestamp, code, message, and (for fatal errors) script location. Cleanup warnings are logged too. Component stdout/stderr goes to `client.log/.err`, `desktop.log/.err`, and `ollama.log/.err` in that session when started by the launcher. Logs remain local; they are not uploaded automatically. They can contain local paths or other diagnostic details, so review/redact them before sharing.
+
+The New project dialog displays API error codes with submission errors. Default-location warnings are separate and disappear when you supply a location, so late lookup failures cannot replace creation errors. General editor API code display, timeouts and retained unexpected-error logging remain pending (K24/K26).
+
+#### Import/export lifecycle errors
+
+These engine/API codes complement the launcher catalog. The editor currently displays import failure messages and export failure messages/codes, but does not expose every API code consistently.
+
+| Code | Meaning | Workaround / next action |
+|---|---|---|
+| `PROJECT_CHANGED` (409) | The originating project was closed, switched or reopened before import/export validation or metadata commit | Select the intended project and retry; stale work does not transfer to the newly opened project |
+| `IMPORT_FAILED` (500 for a batch commit; per-file failures also use this code) | Import preparation or project commit failed | Read the message; check source/project permissions and free space, then retry after reconciling the project |
+| `IMPORT_CLEANUP_FAILED` (500) | Import failed and a newly copied media file could not be removed | Inspect the listed path after work settles; close readers/check permissions; remove only the reported uncommitted copy, never existing project assets |
+| `EXPORT_BUSY` (409) | Another export is validating, rendering, verifying or settling cleanup | Wait for settlement before starting again; reset/cancel does not release a live writer early |
+| `EXPORT_CANCELLED` (409 during start) | Cancel/reset invalidated asynchronous preflight before rendering began | Retry only in the intended open project |
+| `EXPORT_FAILED` (job status) | Rendering, duration verification or exclusive output publication failed | Read the message; check originals, permissions/free space and hard-link filesystem support; existing output files are not overwritten |
+| `EXPORT_CLEANUP_FAILED` (job status) | A failed/cancelled export could not remove its owned output/partial path | Inspect the listed paths after the writer exits; close readers/check permissions and remove only that job's files |
+
+Project switches and engine shutdown await proxy/export writer settlement. FFmpeg's abort error alone is not proof the child exited; cleanup waits for its close event. A completed `done` export remains on disk after a later cancel. Cleanup errors from jobs invalidated by reset go to engine stderr (captured in the launcher's desktop error log), not into the next project's status. Manual-launch stderr is outside launcher retention.
+
+#### Project persistence and recent-list recovery
+
+| Code | Meaning | Workaround / next action |
+|---|---|---|
+| `CORRUPT` (422) | Neither main nor backup passes shape/relational validation, or a save attempts invalid project data | Preserve both files. Read the named invariant; restore a known-good copy. Do not fix dangling references by guessing or delete the backup |
+| `STORE_IO_FAILED` (500) | Project files cannot be inspected/read for a reason other than absence | Check the reported path, permissions and storage availability. I/O failure is not automatically treated as corrupted data |
+| `SAVE_FAILED` (500) | Preparing/replacing main or backup failed | Check permissions/free space and retry. The engine does not adopt the failed edit; a recovery save never promotes corrupt main data into the usable backup |
+| `SAVE_CLEANUP_FAILED` (500) | Save failed and owned temporary-file cleanup failed too | Preserve main/backup. After work settles, inspect the reported UUID temporary path and remove only that failed operation's temporary file |
+| `RECENT_UPDATE_FAILED` (warning on successful create/open) | The project is saved/open, but recent-list bookkeeping failed | Continue editing or open by folder next time. Read the editor warning; check index permissions/storage. Do not recreate the successfully created project |
+| `RECENT_INDEX_INVALID` (500 for list) | The index is damaged or has invalid fields | Open projects by folder. Preserve/rename the reported index before rebuilding it; it is not silently discarded or overwritten |
+| `RECENT_UNAVAILABLE` (500 for list) | The index or a referenced project cannot be inspected | Check the reported path/permissions and reopen the Projects screen after correcting it; a failed list is not displayed as "No recent projects" |
+
+Backup-only valid projects remain selectable in recents. Invalid main data falls back to a validated backup and warns on open; saving that recovered state preserves the existing backup. These guarantees cover awaited filesystem failures, not power loss, fsync durability or concurrent independent engine instances.
+
+Regression tests isolate client/Ollama/project configuration, block ordinary user start/stop operations during the suite, and clean up only recorded test identities. They test malformed state, command-name FFmpeg overrides, and retry after a simulated child termination failure.
+
+### Log retention and storage warnings (launcher only)
+
+The first retention slice is implemented for Windows quick-start logs. It is **not** an in-app alert system or unified engine/vision logging service. Manual launches below are outside this retention policy. There is no background timer: cleanup and threshold checks run during script startup/shutdown or a manual cleanup command.
+
+The launcher creates `log-settings.json` in the project-key log directory with these defaults:
+
+```json
+{
+  "enabled": true,
+  "retentionDays": 14,
+  "maxTotalMB": 250,
+  "keepRecentSessions": 3,
+  "minFreeDiskMB": 1024
+}
+```
+
+- Edit this local JSON while no launcher operation is running. All fields are required: `enabled` is boolean, the other fields are integers. Retention days (1-36500) and total MB must be positive; recent-session count and minimum free MB can be zero. `enabled: false` disables deletion, not usage warnings.
+- The age starts when cleanup first verifies that all recorded session writers have exited, not at session creation. This deliberately delays deletion after an unobserved exit. Active sessions and their recorded children, `preserved: true` sessions, the latest configured number of closed sessions, unknown/corrupt sessions and links are protected.
+- Eligible closed sessions are removed oldest-first if expired **or** if usage exceeds the soft target. Budget pressure may delete an eligible session before the age limit. The target is not a hard cap: active logs are never truncated or rotated to force compliance. A file-open check also skips a session whose files are in use.
+- `session.json` is internal lifecycle metadata. To retain a closed session for investigation, set its `preserved` field to `true` while no launcher operation is running. Do not edit writer identities or process state.
+- Old root-level `.log`, `.err` and `.jsonl` files count toward usage but are never automatically deleted. Operational state/configuration, project data, media and exports are not cleanup targets. Review legacy logs manually only after their writers have stopped.
+
+Preview and then apply from the app folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup-logs.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup-logs.ps1
+```
+
+The JSON result includes projected/actual `remainingBytes`, `protectedBytes`, `legacyBytes`, `usageComplete`, selected session directories and coded warnings. A dry run deletes no logs and does not update closed-session metadata, but creates its own diagnostic session and may write warnings. Usage is a snapshot and can grow while the app is running. If links or unreadable paths prevent full accounting, `usageComplete` is false and reported bytes are a lower bound.
+
+Warnings appear in the terminal and local diagnostic log, not yet in the app. Pending: nonblocking in-app storage alerts, periodic checks, usage/configuration controls and Open logs / Preview cleanup / Retry actions.
+
+Safety regression checks use small isolated synthetic logs, not user projects or a full disk:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-log-retention.ps1
 ```
 
 ## Launch options

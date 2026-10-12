@@ -2,6 +2,8 @@
 
 [Back to index](./README.md)
 
+**Status:** the opening Preview/Export sections describe targets; the explicitly implemented sections below describe current behavior. Candidate rendering is planned for M6. Project/job lifecycle and output identity fixes (K16/K22/K25) are verified locally; hosted CI and remaining UI/error recovery work are not implied.
+
 Preview and final rendering are separate systems with different goals: preview is fast and approximate, export is slow and exact.
 
 ## Preview
@@ -20,6 +22,7 @@ Preview and final rendering are separate systems with different goals: preview i
 - H.264 (`libx264 -preset veryfast -crf 28`), yuv420p, never upscaled above 540p, constant frame rate equal to the source rate, keyframe every 15 frames, AAC stereo 96 kbps, `+faststart`.
 - Generated one at a time in the engine, written to a `.part` file and renamed when finished, with progress parsed from FFmpeg's `-progress` output and pushed to the client as server-sent events.
 - The proxy can end up one frame shorter than the asset's computed frame count (rounding at the tail). The preview must clamp to the proxy's real duration.
+- Completion metadata is bound to the originating project opening, including same-folder reopen. Reset suppresses stale callbacks/status and waits for the writer to exit before cleanup or resumed rendering.
 
 ### Implemented in Slice B step 2
 
@@ -49,7 +52,9 @@ Preview and final rendering are separate systems with different goals: preview i
 
 - **Render plan:** `buildRenderPlan` (timeline-core) flattens the timeline into clip and gap segments using the same rule as the preview: at each frame the highest-order non-audio track wins. Audio-track clips are not rendered, matching the preview.
 - **FFmpeg command:** one `-ss/-t/-i` input per clip segment from the original file, each scaled and padded to the project size (rounded to even numbers), run through `fps` and an exact frame trim, and joined with `concat`. Gaps are black video and silence; assets without audio get silence. Output is libx264 (`-crf 20`, `medium`), AAC 192k stereo, `+faststart`.
-- **Safe output:** written to `exports/<name>-<timestamp>.mp4.part`, then ffprobe checks the duration (within 2 frames or 0.1 s) before it is renamed. A failed, cancelled or mismatching export leaves no partial file.
+- **Safe output:** written to `exports/<name>-<timestamp>-<job-uuid>.mp4.part`, then ffprobe checks the duration (within 2 frames or 0.1 s). A same-volume hard link publishes the final name without replacing an existing file, then the partial name is removed. Filesystems without hard-link support fail explicitly rather than using an overwrite-prone fallback.
+- **Cancellation/commit boundary:** reservation begins before asynchronous validation and remains until the writer and cleanup settle. Cancel/reset/project changes are checked after rendering, verification and publication; cancellation during publication rolls back this job's own output. After the final synchronous `done` transition, the export is committed; a later cancel does not delete it. Reset during settlement can temporarily return `EXPORT_BUSY` for a new start.
+- **Cleanup:** failed/cancelled/mismatching exports remove their owned output/partial files when possible. Deletion failure reports `EXPORT_CLEANUP_FAILED` with affected paths, not false success; stale-job failures are written to engine stderr rather than replacing another project's status. There is no general orphan-storage sweeper.
 - **Engine API:** `POST /project/export` (202), `GET /project/export` (polled by the client), `POST /project/export/cancel`, `GET /project/media-status`. One export at a time.
 - **Refusals (422):** `EMPTY_TIMELINE`, `OFFLINE_MEDIA` (names the files), `TOO_MANY_CUTS`, `MISSING_ASSET`.
 - **Limits:** no compositing of overlapping tracks yet, and many cuts hit the Windows command-line limit (see L8 in the backlog).

@@ -34,13 +34,13 @@ Only claim what is in the "Ready" column.
 | Capability | Status | Demo-ready |
 |---|---|---|
 | Create, save, reopen projects | Built | Yes |
-| Import media, frame rate matching, proxies with progress | Built | Yes |
-| Timeline, preview, split | Next (M2 Slice B step 2) | Not yet |
-| Export MP4 | Planned (M2 Slice C) | Not yet |
+| Import media, frame rate matching, proxies with progress | Built; first-video adoption and project/concurrent ownership fixes verified locally (K31/K22) | Yes; switching during an import rejects obsolete work rather than transferring it to another project |
+| Timeline, preview, split/delete | Built (M2) | Yes, within current single-track limitations |
+| Export MP4 | Built (M2 Slice C); concurrent/cancel/reset/output-collision regressions pass locally | Yes; export-modal interaction/recovery issues remain, and hard-link output publication requires a supporting filesystem |
 | Multi-track editing, undo, relink | Planned (M3) | Not yet |
-| AI jump-cut sequence | Planned (M4-M5) | Not yet |
+| AI jump-cut sequence | Planned (M6, after chat M4 and proposals M5) | Not yet |
 
-The headline AI feature is not built. Until M4/M5 present it as the roadmap and the vision, not as a shipped feature.
+The headline AI feature is not built. Present it as roadmap/vision until M6 is implemented and evaluated. Undo/redo UI is also not shipped yet.
 
 ## Content plan
 
@@ -61,7 +61,7 @@ Short posts and one longer write-up per milestone.
 - 60-90 s demo: import, cut, split, export, with a before and after.
 - Short clip of the same footage opened again from a saved project (proves persistence).
 
-### Phase 3: AI demo (after M5)
+### Phase 3: AI demo (after M6)
 
 - The keycap example end to end: prompt, candidates, preview, accept, export.
 - A side-by-side: manual cutting time vs assisted time, **measured honestly** on real footage with the method written down.

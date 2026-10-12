@@ -2,12 +2,14 @@
 
 [Back to index](./README.md)
 
+**Status:** target UX, not a current feature inventory. Current UI has landing/create/open, resizable panes, one-track add/split/delete/scrub/zoom, video preview and export. Settings, drag/drop, search, frame-step, move/trim gestures, Undo/Redo, mute/lock controls, overlays and AI/caption workflows are planned. Responsive collapse and complete keyboard/focus behavior are not yet verified/implemented; see [Review status](./16-review-plan-and-system-status.md).
+
 ## Screens
 
 1. **Landing:** recent projects list, Create New Project, Open Project. Shows a missing-project state for moved folders. The create dialog sets name, location, resolution and frame rate (a preset, or "use the first imported video's frame rate").
 2. **Editor:** four panes plus a top bar (project name, save status, export).
 
-A **Settings** dialog (reachable from both screens) holds the app-level settings listed in [Testing and Settings](./12-testing-and-settings.md).
+A planned **Settings** dialog (reachable from both screens) will hold the app-level settings listed in [Testing and Settings](./12-testing-and-settings.md). There is no Settings dialog today.
 
 ## Editor layout (desktop)
 

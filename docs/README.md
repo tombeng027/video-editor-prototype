@@ -2,6 +2,8 @@
 
 Status: **Draft v0.1** (prototype scope). This file is the entry point that links all documentation.
 
+Current implementation: M1-M2 capabilities and Windows launcher stabilization; M3-M6 remain planned. The product summary and key decisions below include target behavior, not a claim that AI, settings or every UI feature exists. For current evidence and review gates, start with [Review Plan and System Status](./16-review-plan-and-system-status.md).
+
 ## Product summary
 
 A CapCut-inspired video editor with a local LLM assistant (Ollama). The assistant is conversational and suggestive by default, and can run a small set of confirmed "quick actions". The first quick action is the **jump-cut sequence**: given a time range and an action description, find the matching half-second moments and assemble them into a candidate sequence.
@@ -27,10 +29,11 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 | 13 | [Running and Manual Testing](./13-run-and-manual-testing.md) | Launch steps, test media, manual test checklist |
 | 14 | [Content and Marketing](./14-content-and-marketing.md) | Positioning, demo plan, sponsor package, claims checklist |
 | 15 | [Captions Concept](./15-captions-concept.md) | Future feature: auto-captions with a separate caption timeline (design note, not scheduled) |
+| 16 | [Review Plan and System Status](./16-review-plan-and-system-status.md) | Subsystem matrix, specialist review perspectives, evidence, findings and acceptance gates |
 
 ## Key decisions at a glance
 
-- **Desktop shell:** Electron (thin wrapper) hosting the React client and bundling the engine. Adds native file dialogs, path drag-and-drop and engine lifecycle only.
+- **Desktop shell:** Electron (thin wrapper) hosting the React client and launching the engine in development. Native dialogs and engine lifecycle exist; packaging/bundling and path drag-and-drop are planned.
 - **Client:** React + TypeScript + Vite, responsive-ready, so Tauri/Capacitor wrappers remain possible later.
 - **Media handling:** imported media is referenced by path by default, with an optional per-import "copy into project" setting.
 - **AI model:** `qwen3:8b` via Ollama (thinking mode off), fallback `llama3.1:8b`; configurable.

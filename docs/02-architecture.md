@@ -14,16 +14,16 @@
                                         +----------------------+          +-------------------+
 ```
 
-The client never talks to Ollama, FFmpeg or the vision service directly. All of that goes through the engine.
+This diagram includes planned M4-M6 services. Currently the engine manages projects and FFmpeg jobs and probes external service health; Ollama chat and vision analysis are not implemented. The client never invokes media tools or AI services directly.
 
 ## Components
 
 | Component | Tech | Responsibilities |
 |-----------|------|------------------|
-| Desktop shell | Electron | Thin wrapper: window, native file dialogs, real file-path drag-and-drop, starting/stopping the bundled engine. Contains no editing logic. |
-| Client | React, TypeScript, Vite, Zustand (state) | UI, timeline interaction, playback clock, optimistic command dispatch |
+| Desktop shell | Electron | Window, native folder/media dialogs, reveal-in-folder, source-based engine startup/shutdown. Packaging and path drag-and-drop are planned. |
+| Client | React, TypeScript, Vite, React hooks | UI, timeline interaction, playback clock, engine round-trip command dispatch. Zustand and optimistic dispatch are not currently used. |
 | Engine | Node, TypeScript, Fastify | Project storage, import and probing (ffprobe), proxy generation, export, AI proxy and action validation, job queue |
-| Vision service | Python, FastAPI, OpenCV, PyTorch (CLIP) | Frame sampling, embeddings, similarity scoring only (peak finding and window building stay in the engine) |
+| Vision service | Python, FastAPI health stub | OpenCV/PyTorch/CLIP scoring is planned for M6; peak finding/window building will stay in the engine |
 | Schema package | TypeScript, Zod | Shared types for project, commands, AI actions, API payloads |
 | Ollama | Local daemon | LLM inference for chat and action proposals |
 
@@ -53,38 +53,37 @@ video-editor/
 
 ## Communication
 
-- **REST:** projects, assets, export jobs, AI action validation.
-- **WebSocket (or SSE):** chat token streaming, job progress events.
+- **REST implemented:** projects, import, media status, export state/cancel. AI action validation is planned for M5.
+- **SSE implemented:** proxy job progress. Export uses polling. Chat streaming transport is planned for M4; WebSocket is not implemented.
 - **Media delivery:** engine serves proxy media with HTTP range requests so `<video>` can seek.
 - **Security:** engine binds to `127.0.0.1` by default. LAN access is a future, opt-in setting.
   - Every request needs the per-session token. `<video>` and `<audio>` elements cannot send headers, so media URLs carry the token as a query parameter (or the engine sets a session cookie).
   - The engine checks the `Origin` header and rejects requests from unknown origins, so other local web pages cannot read project files.
-  - The vision service listens on localhost only and accepts requests from the engine only.
+  - The vision stub binds to localhost. Engine-only authenticated analysis access must be implemented before M6; it is not a current guarantee.
 
 ## State ownership
 
-- The **client** holds the live project state and runs the shared `timeline-core` reducer, so edits feel instant and undo/redo is local.
-- Each committed command is sent to the **engine**, which applies the same reducer to its own copy, autosaves it, and uses it to validate AI proposals. The engine copy is the source for what is written to `project.json`.
-- On reconnect or open, the client loads the full project from the engine. If the copies diverge (the engine rejects a command), the client reloads the engine's state and tells the user.
+- **Implemented:** the client holds the last engine-returned project and plans command batches; the engine applies the reducer and saves before returning the updated project. Client undo/redo and reconnect recovery are not implemented.
+- **Planned:** serialize edits, build history from returned inverses, and handle reconnection explicitly in M3. Optimistic local reduction is optional future work, not current behavior.
 - **Current implementation (M2 Slice A):** the engine owns the single open project and applies every command batch (`POST /project/commands`), autosaving after each one and returning the new project plus the inverse commands. The client also does not apply commands locally: since Slice B step 2 it sends each batch to the engine and adopts the returned project, so there is one source of truth and no divergence to reconcile. The engine is local, so the round trip is a few milliseconds. Optimistic local application (using the same reducer) stays an option if drag editing in M3 needs it.
-- Commands triggered by AI confirmations (such as `InsertSequence`) are dispatched by the client like any manual command.
+- **Planned M5-M6:** AI confirmations dispatch commands through this same path; `InsertSequence` is not implemented.
 
 ## Media tools
 
-- FFmpeg and ffprobe are bundled as static binaries (for example via `ffmpeg-static` and `ffprobe-static`), with a setting to point at a system install.
-- Static builds that include libx264 are GPL-licensed. This is acceptable for a personal prototype; revisit it before distributing the app.
+- **Implemented:** FFmpeg/ffprobe must be installed separately and discoverable on PATH or configured with `FFMPEG_PATH`/`FFPROBE_PATH`. They are not bundled and there is no Settings dialog.
+- **Distribution prerequisite:** check the exact FFmpeg build, codecs and license obligations before bundling binaries; do not assume every build has the same license.
 
 ## Desktop shell rules
 
-- Electron runs with `contextIsolation` on and `nodeIntegration` off. The preload script exposes a minimal API: open/save dialogs, resolve dropped file paths, and engine status.
+- Electron runs with `contextIsolation` on and `nodeIntegration` off. No save dialog or dropped-path bridge is currently exposed.
 - The shell starts the engine on a free local port with a per-session token and stops it on quit. The engine's stdin is a pipe held open by the shell (`ENGINE_EXIT_WHEN_PARENT_GONE=1`); when the shell dies, even from a force-kill, the pipe closes and the engine exits instead of being orphaned. The client talks to the engine over HTTP/WebSocket exactly as it would in a browser, so the client never depends on Electron APIs for editing.
-- Native dialogs go through a single IPC channel per dialog. The main process only answers callers whose frame origin matches the client origin. Current preload API: `engine` (url and token) and `pickFolder(title)`. A video picker is added with import in Slice B.
+- Native dialogs use dedicated IPC channels with origin checks. Current preload API: `engine`, `pickFolder(title)`, `pickMedia(title)`, and `revealInFolder(file)`.
 - Electron is chosen because the engine is Node/TypeScript and can be bundled directly. The thin-shell rule keeps a later move to Tauri or Capacitor open.
 
 ## Process management
 
-- The desktop shell starts the engine first. The engine supervises FFmpeg jobs and the vision service.
-- Vision service is started on demand by the engine (or run separately in development) and exposes a `/health` endpoint.
+- The desktop shell starts the engine first. The engine supervises FFmpeg jobs, not the vision service yet.
+- The vision health stub is started manually in development. Engine-managed on-demand startup is planned for M6.
 - Engine reports component status (FFmpeg found, Ollama reachable, vision ready) to the client for a clear diagnostics display.
 
 ## Tooling
@@ -95,5 +94,5 @@ video-editor/
 ## Cross-cutting rules
 
 - All inputs are validated with the shared Zod schemas at every boundary.
-- Long jobs use a common job model: `queued`, `running`, `succeeded`, `failed`, `cancelled`, with progress.
+- Jobs currently have separate proxy/export schemas. A unified job model is a future design option, not an implemented abstraction.
 - Errors are typed and carry a user-readable message.
