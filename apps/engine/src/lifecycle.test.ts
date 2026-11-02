@@ -1,4 +1,5 @@
 import { link, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -438,5 +439,59 @@ describe("project-owned import and export lifecycle", () => {
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: "PROJECT_CHANGED", message: expect.stringContaining("Retry") } });
     expect(await readdir(path.join(tmp, "API", "media"))).toEqual([]);
+  });
+
+  it("correlates a pending import and prevents resubmission with the same attempt", async () => {
+    const entered = gate();
+    const release = gate();
+    const headers = { "x-engine-token": "test" };
+    const attemptId = randomUUID();
+    app = await buildApp(loadConfig({ ENGINE_TOKEN: "test", ENGINE_DATA_DIR: path.join(tmp, "api-data") }), undefined, {
+      probe: async () => { entered.resolve(); await release.promise; return audio; },
+    });
+    expect((await app.inject({ method: "POST", url: "/project/create", headers, payload: settings("API") })).statusCode).toBe(200);
+    const pending = app.inject({ method: "POST", url: "/project/import", headers,
+      payload: { attemptId, paths: [await source()], mode: "reference" } });
+    await entered.promise;
+    expect((await app.inject({ method: "GET", url: `/project/imports/${attemptId}`, headers })).json()).toEqual({ state: "pending", attemptId });
+    const duplicate = await app.inject({ method: "POST", url: "/project/import", headers,
+      payload: { attemptId, paths: [await source("other.media")], mode: "reference" } });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json()).toMatchObject({ error: { code: "ATTEMPT_EXISTS" } });
+    release.resolve();
+    const completed = await pending;
+    expect(completed.statusCode).toBe(200);
+    expect(completed.json()).toMatchObject({ project: { assets: [{ name: "source.media" }] } });
+    expect((await app.inject({ method: "GET", url: `/project/imports/${attemptId}`, headers })).json()).toMatchObject({
+      state: "done", attemptId, response: { project: { assets: [{ name: "source.media" }] } },
+    });
+  });
+
+  it("invalidates completed import status after reopening the same project folder", async () => {
+    const headers = { "x-engine-token": "test" };
+    const attemptId = randomUUID();
+    app = await buildApp(loadConfig({ ENGINE_TOKEN: "test", ENGINE_DATA_DIR: path.join(tmp, "api-data") }), undefined, {
+      probe: async () => audio,
+    });
+    expect((await app.inject({ method: "POST", url: "/project/create", headers, payload: settings("API") })).statusCode).toBe(200);
+    const imported = await app.inject({ method: "POST", url: "/project/import", headers,
+      payload: { attemptId, paths: [await source()], mode: "reference" } });
+    expect(imported.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: `/project/imports/${attemptId}`, headers })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/project/open", headers, payload: { folder: path.join(tmp, "API") } })).statusCode).toBe(200);
+    const status = await app.inject({ method: "GET", url: `/project/imports/${attemptId}`, headers });
+    expect(status.statusCode).toBe(409);
+    expect(status.json()).toMatchObject({ error: { code: "PROJECT_CHANGED" } });
+  });
+
+  it("reports missing or malformed import attempts as unconfirmed", async () => {
+    const headers = { "x-engine-token": "test" };
+    app = await buildApp(loadConfig({ ENGINE_TOKEN: "test", ENGINE_DATA_DIR: path.join(tmp, "api-data") }));
+    const missing = await app.inject({ method: "GET", url: `/project/imports/${randomUUID()}`, headers });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toMatchObject({ error: { code: "IMPORT_OUTCOME_UNKNOWN" } });
+    const malformed = await app.inject({ method: "GET", url: "/project/imports/not-a-uuid", headers });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json()).toMatchObject({ error: { code: "INVALID_REQUEST" } });
   });
 });

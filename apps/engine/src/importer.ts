@@ -8,6 +8,7 @@ import { ProxyManager } from "./proxy.js";
 import { SessionError, type ProjectSession } from "./session.js";
 
 export type ProbeFn = (file: string) => Promise<MediaInfo>;
+export type ImportOutcomeKnown = (response: ImportResponse) => void;
 
 export class ImportError extends Error {
   constructor(
@@ -48,14 +49,14 @@ export class Importer {
     private readonly probe: ProbeFn = (file) => probeFile(config.ffprobePath, file),
   ) {}
 
-  importFiles(req: ImportRequest): Promise<ImportResponse> {
+  importFiles(req: ImportRequest, onOutcomeKnown?: ImportOutcomeKnown): Promise<ImportResponse> {
     const version = this.session.version;
-    const task = this.queue.then(() => this.performImport(req, version), () => this.performImport(req, version));
+    const task = this.queue.then(() => this.performImport(req, version, onOutcomeKnown), () => this.performImport(req, version, onOutcomeKnown));
     this.queue = task.catch(() => undefined);
     return task;
   }
 
-  private async performImport(req: ImportRequest, version: number): Promise<ImportResponse> {
+  private async performImport(req: ImportRequest, version: number, onOutcomeKnown?: ImportOutcomeKnown): Promise<ImportResponse> {
     const open = this.session.open;
     if (!open) throw new SessionError("NO_PROJECT", "No project is open.");
     this.session.assertVersion(version);
@@ -111,7 +112,11 @@ export class Importer {
       this.session.assertVersion(version);
       const current = this.session.open;
       if (!current) throw new SessionError("NO_PROJECT", "No project is open.");
-      if (added.length === 0) return { project: current.project, imported, failed };
+      if (added.length === 0) {
+        const response = { project: current.project, imported, failed };
+        onOutcomeKnown?.(response);
+        return response;
+      }
 
       const outcome = await this.session.apply((project) => {
         const commands: Command[] = [];
@@ -124,10 +129,12 @@ export class Importer {
       }, version);
       if (!outcome.ok) throw new Error(outcome.error.message);
       copies.length = 0;
+      const response = { project: outcome.project, imported, failed };
+      onOutcomeKnown?.(response);
 
       this.session.assertVersion(version);
       for (const { asset, info } of added) if (asset.kind === "video") this.enqueueProxy(folder, asset, info.durationSeconds, version);
-      return { project: outcome.project, imported, failed };
+      return response;
     } catch (error) {
       const cleanupErrors: string[] = [];
       for (const file of copies) {

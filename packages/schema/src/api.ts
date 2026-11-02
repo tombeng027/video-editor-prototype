@@ -81,6 +81,7 @@ export type RecentProjectsResponse = z.infer<typeof RecentProjectsResponseSchema
 export const DefaultFolderResponseSchema = z.object({ folder: z.string() });
 
 export const ImportRequestSchema = z.object({
+  attemptId: z.uuid().optional(),
   paths: z.array(z.string().min(1)).min(1).max(50),
   mode: z.enum(["reference", "copy"]),
 });
@@ -92,6 +93,14 @@ export const ImportResponseSchema = z.object({
   failed: z.array(z.object({ path: z.string(), code: z.string(), message: z.string() })),
 });
 export type ImportResponse = z.infer<typeof ImportResponseSchema>;
+
+export const ImportOperationSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("pending"), attemptId: z.uuid() }),
+  z.object({ state: z.literal("done"), attemptId: z.uuid(), response: ImportResponseSchema }),
+  z.object({ state: z.literal("failed"), attemptId: z.uuid(), error: ApiErrorSchema.shape.error }),
+  z.object({ state: z.literal("unknown"), attemptId: z.uuid(), error: ApiErrorSchema.shape.error }),
+]);
+export type ImportOperation = z.infer<typeof ImportOperationSchema>;
 
 export const ProxyStateSchema = z.object({
   assetId: z.string(),

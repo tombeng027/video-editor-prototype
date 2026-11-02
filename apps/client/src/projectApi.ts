@@ -3,6 +3,7 @@ import {
   CommandsResponseSchema,
   DefaultFolderResponseSchema,
   ExportStateSchema,
+  ImportOperationSchema,
   ImportResponseSchema,
   MediaStatusResponseSchema,
   ProjectResponseSchema,
@@ -96,7 +97,10 @@ export const closeProject = (c: EngineConfig, expectedProject?: CloseProjectRequ
   call(c, "POST", "/project/close", z.object({ ok: z.literal(true) }), { expectedProject }, f, RECOVERY_TIMEOUT_MS);
 
 export const importFiles = (c: EngineConfig, req: ImportRequest, f?: typeof fetch) =>
-  call<ImportResponse>(c, "POST", "/project/import", ImportResponseSchema, req, f);
+  call<ImportResponse>(c, "POST", "/project/import", ImportResponseSchema, req, f, RECOVERY_TIMEOUT_MS);
+
+export const getImportOperation = (c: EngineConfig, attemptId: string, f?: typeof fetch) =>
+  call(c, "GET", `/project/imports/${encodeURIComponent(attemptId)}`, ImportOperationSchema, undefined, f, RECOVERY_TIMEOUT_MS);
 
 export const getProject = (c: EngineConfig, f?: typeof fetch) =>
   call<ProjectResponse>(c, "GET", "/project", ProjectResponseSchema, undefined, f, RECOVERY_TIMEOUT_MS);

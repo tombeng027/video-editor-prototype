@@ -628,7 +628,7 @@ No new licensing decision, code scope or distribution activity is needed for rou
 4. **K29 before K21 cleanup UI:** return accurate partial/failed cleanup results, remeasure after partial deletion, commit metadata safely and inject failure windows while preserving active-writer protections. Only then design K21 periodic nonblocking warnings/controls.
 5. **M3 remains gated:** K12 before Undo/Redo; K13 before drag editing; K28 viewport constraints and relevant UI/manual acceptance before layout-dependent scope.
 
-**Gate:** proceed with bounded remaining K24 recovery and continued K26 integration, not M3 expansion. Inventory stays **22 resolved / 12 open or partial**, with both K24 and K26 partial. K29 still gates cleanup UI; K12/K13 gate dependent editing work.
+**Gate:** proceed with bounded remaining K24 recovery and continued K26 integration, not M3 expansion. The import outcome-recovery slice is locally validated; K24 remains partial alongside K26. Inventory stays **22 resolved / 12 open or partial**. K29 still gates cleanup UI; K12/K13 gate dependent editing work.
 
 ## Priority and next acceptance gates
 
@@ -636,7 +636,7 @@ No new licensing decision, code scope or distribution activity is needed for rou
 
 1. **Test ownership and project/job isolation (P1): passed locally.** K33/K22/K16/K8/K25/K31 have maintained regressions. Preserve them when changing persistence, job callbacks or shutdown. This is not hosted-CI or all-filesystem acceptance.
 2. **Persistence integrity: passed locally.** K23/K27 regressions cover invalid saved relationships, backup preservation on failed save and recent bookkeeping/core outcome separation. No saved-schema migration was needed.
-3. **User-visible recovery:** K17/K30 modal/input integrity passed locally. K18/K19 plus K24/K26/K32 remain: export retry states, close failure, operation-aware deadlines, media-event loss and preview cuts/end/errors. Do not describe all editor errors as covered by the launcher's catalog.
+3. **User-visible recovery:** K17/K30 modal/input integrity passed locally. K24 import outcomes now have bounded operation status, explicit reconciliation and focused passing lifecycle/UI regressions; unknown attempts are never blindly retried. K18/K19 plus remaining K24/K26/K32 work remain: export retry states, close failure, media-event loss and preview cuts/end/errors. Do not describe all editor errors as covered by the launcher's catalog.
 4. **Finish diagnostics scope:** K29 then K21 in-app nonblocking alerts, periodic checks, usage/target/protected reporting and Open logs / Preview cleanup / Retry. Reuse the verified retention policy rather than duplicating deletion logic. Decide alert interval/deduplication and drive scope before implementation.
 5. **Preserve a reviewed baseline:** approved commit/push, hosted JS/vision/Windows checks and any pending manual acceptance. Never commit or publish as a side effect of a review.
 6. **M3-A:** serialized client planning/history and Undo/Redo (K12); then M3-B gesture/save strategy (K13), then M3-C relink/tracks with a defined preview/export media contract.

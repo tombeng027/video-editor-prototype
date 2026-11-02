@@ -3,10 +3,13 @@ import type { OutgoingHttpHeaders } from "node:http";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { ImportRequestSchema, type ApiError, type ProxyState } from "@ve/schema";
+import { randomUUID } from "node:crypto";
+import { ImportRequestSchema, type ApiError, type ImportOperation, type ProxyState } from "@ve/schema";
+import { z } from "zod";
 import { Importer, ImportError } from "./importer.js";
 import type { ProxyManager } from "./proxy.js";
 import { SessionError, type ProjectSession } from "./session.js";
+import { reportDiagnostic } from "./diagnostics.js";
 
 const apiError = (code: string, message: string): ApiError => ({ error: { code, message } });
 
@@ -38,16 +41,77 @@ export function registerMediaRoutes(
   importer: Importer,
   proxies: ProxyManager,
 ) {
+  const operations = new Map<string, { status: ImportOperation; version: number }>();
+  const invalid = (reply: FastifyReply, message: string) =>
+    reply.code(400).send(apiError("INVALID_REQUEST", message));
+
   app.post("/project/import", async (req, reply) => {
     const parsed = ImportRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send(apiError("INVALID_REQUEST", "Provide 1-50 absolute file paths and a mode."));
+    const attemptId = parsed.data.attemptId ?? randomUUID();
+    if (operations.has(attemptId)) {
+      return reply.code(409).send(apiError("ATTEMPT_EXISTS", "This import attempt was already submitted. Check its status instead of resubmitting."));
+    }
+    if ([...operations.values()].some(({ status }) => status.state === "pending")) {
+      return reply.code(409).send(apiError("IMPORT_OPERATION_BUSY", "An import is still settling. Check its status before starting another import."));
+    }
+    if (operations.size >= 16) operations.delete(operations.keys().next().value!);
+    const version = session.version;
+    const operation = { status: { state: "pending", attemptId } as ImportOperation, version };
+    operations.set(attemptId, operation);
     try {
-      return await importer.importFiles(parsed.data);
+      const imported = await importer.importFiles(parsed.data, (response) => {
+        operation.status = { state: "done", attemptId, response };
+      });
+      session.assertVersion(version);
+      const active = session.open;
+      if (!active) throw new SessionError("NO_PROJECT", "No project is open.");
+      const response = { ...imported, project: active.project };
+      operation.status = { state: "done", attemptId, response };
+      return response;
     } catch (e) {
+      if (operation.status.state !== "done") {
+        if (e instanceof SessionError) {
+          operation.status = { state: "failed", attemptId, error: { code: e.code, message: e.message } };
+        } else if (e instanceof ImportError) {
+          operation.status = { state: "failed", attemptId, error: { code: e.code, message: e.message } };
+        } else {
+          const diagnosticId = reportDiagnostic("ENGINE_UNEXPECTED_ERROR", e, { method: "POST", route: "/project/import" });
+          const error = {
+            code: "IMPORT_OUTCOME_UNKNOWN",
+            message: "Import outcome is unconfirmed. Check the current project and operation status before retrying.",
+            diagnosticId,
+          };
+          operation.status = { state: "unknown", attemptId, error };
+          return reply.code(500).send({ error } satisfies ApiError);
+        }
+      }
       if (e instanceof SessionError) return reply.code(409).send(apiError(e.code, e.message));
       if (e instanceof ImportError) return reply.code(500).send(apiError(e.code, e.message));
       throw e;
     }
+  });
+
+  app.get<{ Params: { attemptId: string } }>("/project/imports/:attemptId", async (req, reply) => {
+    if (!z.uuid().safeParse(req.params.attemptId).success) {
+      return invalid(reply, "Invalid import attempt.");
+    }
+    const operation = operations.get(req.params.attemptId);
+    if (!operation) {
+      return reply.code(404).send(apiError("IMPORT_OUTCOME_UNKNOWN",
+        "This import attempt is not recorded. It may not have arrived, been evicted, or the engine restarted; inspect the current project before retrying."));
+    }
+    try { session.assertVersion(operation.version); }
+    catch (error) {
+      if (error instanceof SessionError) return reply.code(409).send(apiError(error.code, error.message));
+      throw error;
+    }
+    if (operation.status.state === "done") {
+      const active = session.open;
+      if (!active) return reply.code(409).send(apiError("NO_PROJECT", "No project is open."));
+      return { ...operation.status, response: { ...operation.status.response, project: active.project } };
+    }
+    return operation.status;
   });
 
   app.get("/project/proxies", async () => ({ proxies: proxies.list() }));

@@ -3,10 +3,10 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyProject } from "@ve/timeline-core";
 import type { DesktopBridge } from "../desktop.js";
-import { importFiles } from "../projectApi.js";
+import { getImportOperation, getProject, importFiles } from "../projectApi.js";
 import { AssetsPane } from "./AssetsPane.js";
 
-vi.mock("../projectApi.js", () => ({ importFiles: vi.fn() }));
+vi.mock("../projectApi.js", () => ({ getImportOperation: vi.fn(), getProject: vi.fn(), importFiles: vi.fn() }));
 const config = { url: "http://engine", token: "fixture" };
 const project = createEmptyProject({ id: "p", name: "Fixture", fps: { num: 30, den: 1 }, width: 640, height: 360 });
 function deferred<T>() {
@@ -22,7 +22,12 @@ const props = () => ({ config, project, proxyStates: new Map(), offline: new Set
   onProject: vi.fn(), onAddToTimeline: vi.fn() });
 const success = { ok: true as const, data: { project, imported: [], failed: [] } };
 
-beforeEach(() => { vi.resetAllMocks(); bridge(); });
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(getImportOperation).mockResolvedValue({ ok: false, code: "IMPORT_OUTCOME_UNKNOWN", message: "Not found." });
+  vi.mocked(getProject).mockResolvedValue({ ok: false, code: "NO_PROJECT", message: "No project." });
+  bridge();
+});
 afterEach(() => { cleanup(); bridge(); });
 
 describe("media picker and import ownership", () => {
@@ -55,8 +60,10 @@ describe("media picker and import ownership", () => {
     expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByRole("status").textContent).toContain("no import has started");
     await act(async () => picker.resolve(["C:\\Synthetic.mp4"]));
-    expect(importFiles).toHaveBeenCalledExactlyOnceWith(config, { paths: ["C:\\Synthetic.mp4"], mode: "copy" });
-    expect(screen.getByRole("status").textContent).toContain("does not cancel");
+    expect(importFiles).toHaveBeenCalledOnce();
+    expect(vi.mocked(importFiles).mock.calls[0]![1]).toMatchObject({ paths: ["C:\\Synthetic.mp4"], mode: "copy" });
+    expect(vi.mocked(importFiles).mock.calls[0]![1].attemptId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(screen.getAllByRole("status").some((node) => node.textContent?.includes("does not cancel"))).toBe(true);
     await act(async () => imported.resolve(success));
     expect(p.onProject).toHaveBeenCalledExactlyOnceWith(project);
     expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(false);
@@ -127,6 +134,12 @@ describe("media picker and import ownership", () => {
     await act(async () => fireEvent.submit(view.container.querySelector("form")!));
     expect(screen.getByRole("alert").textContent).toContain("[IMPORT_FAILED]");
     expect((input as HTMLInputElement).value).toBe("C:\\Retry.mp4");
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    const attemptId = vi.mocked(importFiles).mock.calls[0]![1].attemptId!;
+    vi.mocked(getImportOperation).mockResolvedValueOnce({ ok: true, data: { state: "failed", attemptId,
+      error: { code: "IMPORT_FAILED", message: "Commit failed" } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check import status" })));
+    expect((input as HTMLInputElement).disabled).toBe(false);
     await act(async () => fireEvent.submit(view.container.querySelector("form")!));
     expect(screen.getByRole("alert").textContent).toContain("[UNSUPPORTED]");
     expect((input as HTMLInputElement).value).toBe("C:\\Retry.mp4");
@@ -143,8 +156,97 @@ describe("media picker and import ownership", () => {
     const form = view.container.querySelector("form")!;
     fireEvent.submit(form);
     fireEvent.submit(form);
-    expect(importFiles).toHaveBeenCalledExactlyOnceWith(config, { paths: ["C:\\Synthetic.mp4"], mode: "reference" });
+    expect(importFiles).toHaveBeenCalledOnce();
+    expect(vi.mocked(importFiles).mock.calls[0]![1]).toMatchObject({ paths: ["C:\\Synthetic.mp4"], mode: "reference" });
     expect((screen.getByRole("textbox") as HTMLInputElement).disabled).toBe(true);
     await act(async () => imported.resolve(success));
+  });
+
+  it("keeps a timed-out import locked until its status confirms success", async () => {
+    const p = props(), view = render(<AssetsPane {...p} />);
+    const input = screen.getByRole("textbox", { name: "File path" });
+    fireEvent.change(input, { target: { value: "C:\\Uncertain.mp4" } });
+    vi.mocked(importFiles).mockResolvedValueOnce({ ok: false, code: "REQUEST_TIMEOUT", message: "Timed out." });
+    await act(async () => fireEvent.submit(view.container.querySelector("form")!));
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    expect(importFiles).toHaveBeenCalledOnce();
+    const attemptId = vi.mocked(importFiles).mock.calls[0]![1].attemptId!;
+    vi.mocked(getImportOperation).mockResolvedValueOnce({ ok: true, data: { state: "done", attemptId,
+      response: { ...success.data, imported: [{ assetId: "asset-1", name: "Uncertain.mp4" }] } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check import status" })));
+    expect(getImportOperation).toHaveBeenCalledExactlyOnceWith(config, attemptId);
+    expect(p.onProject).toHaveBeenCalledExactlyOnceWith(project);
+    expect((input as HTMLInputElement).value).toBe("");
+    expect((input as HTMLInputElement).disabled).toBe(false);
+    expect(importFiles).toHaveBeenCalledOnce();
+  });
+
+  it("unlocks a timed-out import only after status confirms failure", async () => {
+    const view = render(<AssetsPane {...props()} />);
+    const input = screen.getByRole("textbox", { name: "File path" });
+    fireEvent.change(input, { target: { value: "C:\\Retry.mp4" } });
+    vi.mocked(importFiles).mockResolvedValueOnce({ ok: false, code: "UNREACHABLE", message: "Disconnected." });
+    await act(async () => fireEvent.submit(view.container.querySelector("form")!));
+    const attemptId = vi.mocked(importFiles).mock.calls[0]![1].attemptId!;
+    vi.mocked(getImportOperation).mockResolvedValueOnce({ ok: true, data: { state: "failed", attemptId,
+      error: { code: "IMPORT_FAILED", message: "Commit failed." } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check import status" })));
+    expect(screen.getByRole("alert").textContent).toContain("[IMPORT_FAILED]");
+    expect((input as HTMLInputElement).disabled).toBe(false);
+    expect((input as HTMLInputElement).value).toBe("C:\\Retry.mp4");
+  });
+
+  it("requires project refresh and explicit confirmation before retrying an unknown import", async () => {
+    const p = props(), view = render(<AssetsPane {...p} />);
+    const input = screen.getByRole("textbox", { name: "File path" });
+    fireEvent.change(input, { target: { value: "C:\\Uncertain.mp4" } });
+    vi.mocked(importFiles).mockResolvedValueOnce({ ok: false, code: "REQUEST_TIMEOUT", message: "Timed out." });
+    await act(async () => fireEvent.submit(view.container.querySelector("form")!));
+    vi.mocked(getImportOperation).mockResolvedValueOnce({ ok: false, code: "IMPORT_OUTCOME_UNKNOWN", message: "Not recorded." });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check import status" })));
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    vi.mocked(getProject).mockResolvedValueOnce({ ok: true, data: { folder: "C:\\Project", project,
+      recoveredFromBackup: false } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Refresh project state" })));
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "I checked; allow another import attempt" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "I checked; allow another import attempt" }));
+    expect((input as HTMLInputElement).disabled).toBe(false);
+    expect(importFiles).toHaveBeenCalledOnce();
+  });
+
+  it("ignores an old status response after switching projects", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof getImportOperation>>>();
+    const p = props(), view = render(<AssetsPane {...p} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "C:\\Uncertain.mp4" } });
+    vi.mocked(importFiles).mockResolvedValueOnce({ ok: false, code: "REQUEST_TIMEOUT", message: "Timed out." });
+    await act(async () => fireEvent.submit(view.container.querySelector("form")!));
+    vi.mocked(getImportOperation).mockReturnValueOnce(pending.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Check import status" }));
+    const next = { ...p, project: { ...project, id: "other" } };
+    view.rerender(<AssetsPane {...next} />);
+    await act(async () => pending.resolve({ ok: true, data: { state: "done",
+      attemptId: vi.mocked(importFiles).mock.calls[0]![1].attemptId!,
+      response: { ...success.data, project } } }));
+    expect(p.onProject).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Check import status" })).toBeNull();
+  });
+
+  it("preserves submitted import recovery when close temporarily disables the editor", async () => {
+    const imported = deferred<Awaited<ReturnType<typeof importFiles>>>();
+    vi.mocked(importFiles).mockReturnValueOnce(imported.promise);
+    const p = props(), view = render(<AssetsPane {...p} enabled />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "C:\\Closing.mp4" } });
+    fireEvent.submit(view.container.querySelector("form")!);
+    const attemptId = vi.mocked(importFiles).mock.calls[0]![1].attemptId!;
+    view.rerender(<AssetsPane {...p} enabled={false} />);
+    await act(async () => imported.resolve(success));
+    expect(p.onProject).not.toHaveBeenCalled();
+    view.rerender(<AssetsPane {...p} enabled />);
+    expect(screen.getByRole("button", { name: "Check import status" })).toBeDefined();
+    vi.mocked(getImportOperation).mockResolvedValueOnce({ ok: true, data: { state: "done", attemptId,
+      response: { ...success.data, imported: [{ assetId: "asset-2", name: "Closing.mp4" }] } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check import status" })));
+    expect(p.onProject).toHaveBeenCalledExactlyOnceWith(project);
   });
 });
