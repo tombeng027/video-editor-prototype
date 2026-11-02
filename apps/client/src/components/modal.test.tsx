@@ -14,11 +14,12 @@ import { Editor } from "./Editor.js";
 import { ExportDialog } from "./ExportDialog.js";
 import { App } from "../App.js";
 
-vi.mock("../projectApi.js", () => ({
+vi.mock("../projectApi.js", async (importOriginal) => ({
+  diagnosticMessage: (await importOriginal<typeof import("../projectApi.js")>()).diagnosticMessage,
   createProject: vi.fn(), getDefaultFolder: vi.fn(), listRecent: vi.fn(), openProject: vi.fn(),
-  getMediaStatus: vi.fn(), getProject: vi.fn(), sendCommands: vi.fn(),
+  getMediaStatus: vi.fn(), getProject: vi.fn(), getProjectOperation: vi.fn(), sendCommands: vi.fn(),
   startExport: vi.fn(), getExport: vi.fn(), cancelExport: vi.fn(),
-  closeProject: vi.fn(),
+  closeProject: vi.fn(), importFiles: vi.fn(),
 }));
 vi.mock("../useHealth.js", () => ({ useHealth: () => health }));
 vi.mock("../useProxyStatus.js", () => ({ useProxyStatus: () => new Map() }));
@@ -67,6 +68,19 @@ afterEach(() => {
 });
 
 describe("shared modal input policy", () => {
+  it("retains engine error codes and diagnostic IDs in actual editor command feedback", async () => {
+    const project = structuredClone(response.project);
+    project.assets = [{ id: "a", name: "Fixture video", kind: "video", mediaMode: "reference", sourcePath: "C:\\Synthetic.mp4",
+      contentHash: "synthetic", durationFrames: 60, fps: { num: 30, den: 1 }, width: 640, height: 360, hasAudio: false, proxyPath: null }];
+    const diagnosticId = "00000000-0000-4000-8000-000000000001";
+    vi.mocked(api.sendCommands).mockResolvedValue({ ok: false, code: "ENGINE_UNEXPECTED_ERROR",
+      message: `Check status before retrying. Diagnostic ID: ${diagnosticId}` });
+    render(<Editor config={config} project={project} folder={response.folder} health={health} onClose={vi.fn()} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Fixture video to timeline" })));
+    expect(screen.getByRole("alert").textContent).toContain(`[ENGINE_UNEXPECTED_ERROR] Check status before retrying. Diagnostic ID: ${diagnosticId}`);
+    expect(api.sendCommands).toHaveBeenCalledTimes(1);
+  });
+
   it("contains forward/reverse Tab, blocks bubbling shortcuts and restores the opener", async () => {
     const user = userEvent.setup();
     const opener = document.createElement("button");
@@ -103,6 +117,26 @@ describe("shared modal input policy", () => {
 });
 
 describe("creation owns its pending interaction", () => {
+  it("allows Projects navigation during media picking and discards selection while close is still pending", async () => {
+    const picker = deferred<string[]>(), closed = deferred<Awaited<ReturnType<typeof api.closeProject>>>();
+    bridge({ pickMedia: vi.fn().mockReturnValue(picker.promise) });
+    vi.mocked(api.createProject).mockResolvedValue({ ok: true, data: response });
+    vi.mocked(api.closeProject).mockReturnValue(closed.promise);
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Create new project" }));
+    await waitFor(() => expect((screen.getByLabelText("Location") as HTMLInputElement).value).toBe("C:\\Samples"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Import media" }));
+    expect(screen.getByText(/Leaving this editor discards/)).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "← Projects" }));
+    expect(screen.getByRole("dialog", { name: "Close project" })).toBeDefined();
+    await act(async () => picker.resolve(["C:\\Late.mp4"]));
+    expect(api.importFiles).not.toHaveBeenCalled();
+    await act(async () => closed.resolve({ ok: true, data: { ok: true } }));
+    expect(screen.getByRole("heading", { name: "Video Editor Prototype" })).toBeDefined();
+  });
+
   it("restores focus to Create after cancelling the idle dialog", async () => {
     render(<Landing config={config} health={health} onOpened={vi.fn()} />);
     const user = userEvent.setup();
@@ -201,14 +235,201 @@ describe("creation owns its pending interaction", () => {
     fireEvent.click(screen.getByRole("button", { name: /Recent/ }));
     expect(api.openProject).not.toHaveBeenCalled();
     await act(async () => picker.resolve("C:\\Chosen"));
-    expect(api.openProject).toHaveBeenCalledExactlyOnceWith(config, "C:\\Chosen");
+    expect(api.openProject).toHaveBeenCalledExactlyOnceWith(config, "C:\\Chosen", undefined, expect.any(String));
     await act(async () => opened.resolve({ ok: false, code: "CORRUPT", message: "No usable backup" }));
     expect(screen.getByRole("alert").textContent).toContain("[CORRUPT]");
     expect((screen.getByRole("button", { name: "Create new project" }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("keeps uncertain create locked through pending/unknown status and adopts only the matching attempt", async () => {
+    vi.mocked(api.createProject).mockResolvedValue({ ok: false, code: "REQUEST_TIMEOUT", message: "Response lost" });
+    const onCreated = vi.fn(), cancel = vi.fn();
+    render(<NewProjectDialog config={config} onCancel={cancel} onCreated={onCreated} />);
+    await waitFor(() => expect((screen.getByLabelText("Location") as HTMLInputElement).value).toBe("C:\\Samples"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Create" })));
+    const attemptId = vi.mocked(api.createProject).mock.calls[0]![1].attemptId!;
+    const dialog = screen.getByRole("dialog");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(api.createProject).toHaveBeenCalledTimes(1);
+    expect(cancel).not.toHaveBeenCalled();
+    for (const result of [
+      { ok: false as const, code: "OPERATION_UNKNOWN", message: "Not recorded" },
+      { ok: true as const, data: { state: "pending" as const, attemptId } },
+      { ok: true as const, data: { state: "done" as const, attemptId: "00000000-0000-4000-8000-000000000002", response } },
+    ]) {
+      vi.mocked(api.getProjectOperation).mockResolvedValueOnce(result);
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project operation" })));
+      expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(onCreated).not.toHaveBeenCalled();
+    }
+    const warnings = [{ code: "PROJECT_PREPARATION_FAILED", message: "Preparation incomplete" }];
+    vi.mocked(api.getProjectOperation).mockResolvedValueOnce({ ok: true, data: { state: "done", attemptId, response: { ...response, warnings } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project operation" })));
+    expect(onCreated).toHaveBeenCalledExactlyOnceWith({ ...response, warnings });
+    expect(api.createProject).toHaveBeenCalledTimes(1);
+    expect(api.getProjectOperation).toHaveBeenLastCalledWith(config, attemptId);
+  });
+
+  it("unlocks a confirmed failed create and uses a new attempt on explicit retry", async () => {
+    vi.mocked(api.createProject).mockResolvedValue({ ok: false, code: "UNREACHABLE", message: "Connection lost" });
+    render(<NewProjectDialog config={config} onCancel={vi.fn()} onCreated={vi.fn()} />);
+    await waitFor(() => expect((screen.getByLabelText("Location") as HTMLInputElement).value).toBe("C:\\Samples"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Create" })));
+    const attemptId = vi.mocked(api.createProject).mock.calls[0]![1].attemptId!;
+    vi.mocked(api.getProjectOperation).mockResolvedValueOnce({ ok: true, data: { state: "failed", attemptId, error: { code: "PROJECT_OPERATION_FAILED", message: "Failed before opening" } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project operation" })));
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("alert").textContent).toContain("PROJECT_OPERATION_FAILED");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Create" })));
+    expect(vi.mocked(api.createProject).mock.calls[1]![1].attemptId).not.toBe(attemptId);
+  });
+
+  it("displays a correlated diagnostic ID from failed operation status while allowing confirmed-failure recovery", async () => {
+    vi.mocked(api.createProject).mockResolvedValue({ ok: false, code: "UNREACHABLE", message: "Response lost" });
+    render(<NewProjectDialog config={config} onCancel={vi.fn()} onCreated={vi.fn()} />);
+    await waitFor(() => expect((screen.getByLabelText("Location") as HTMLInputElement).value).toBe("C:\\Samples"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Create" })));
+    const attemptId = vi.mocked(api.createProject).mock.calls[0]![1].attemptId!;
+    const diagnosticId = "00000000-0000-4000-8000-000000000001";
+    vi.mocked(api.getProjectOperation).mockResolvedValueOnce({ ok: true, data: { state: "failed", attemptId,
+      error: { code: "PROJECT_OPERATION_FAILED", message: "Check local diagnostics", diagnosticId } } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project operation" })));
+    expect(screen.getByRole("alert").textContent).toContain(`[PROJECT_OPERATION_FAILED] Check local diagnostics Diagnostic ID: ${diagnosticId}`);
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("locks uncertain open, guards duplicate checks and ignores a late check after unmount", async () => {
+    vi.mocked(api.openProject).mockResolvedValue({ ok: false, code: "BAD_RESPONSE", message: "Invalid response" });
+    const onOpened = vi.fn();
+    const view = render(<Landing config={config} health={health} onOpened={onOpened} />);
+    await screen.findByRole("button", { name: /Recent/ });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Recent/ })));
+    const dialog = screen.getByRole("dialog", { name: "Open project" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Create new project" }));
+    expect(screen.queryByRole("dialog", { name: "New project" })).toBeNull();
+    const check = deferred<Awaited<ReturnType<typeof api.getProjectOperation>>>();
+    vi.mocked(api.getProjectOperation).mockReturnValueOnce(check.promise);
+    const button = screen.getByRole("button", { name: "Check project operation" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(api.getProjectOperation).toHaveBeenCalledTimes(1);
+    view.unmount();
+    const attemptId = vi.mocked(api.openProject).mock.calls[0]![3]!;
+    await act(async () => check.resolve({ ok: true, data: { state: "done", attemptId, response } }));
+    expect(onOpened).not.toHaveBeenCalled();
+  });
+
+  it("keeps changed-project status locked, then adopts a matching open result without another POST", async () => {
+    vi.mocked(api.openProject).mockResolvedValue({ ok: false, code: "UNREACHABLE", message: "Lost response" });
+    const onOpened = vi.fn();
+    render(<Landing config={config} health={health} onOpened={onOpened} />);
+    await screen.findByRole("button", { name: /Recent/ });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Recent/ })));
+    vi.mocked(api.getProjectOperation).mockResolvedValueOnce({ ok: false, code: "PROJECT_CHANGED", message: "No longer active" });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project operation" })));
+    expect(screen.getByRole("alert").textContent).toContain("PROJECT_CHANGED");
+    expect(onOpened).not.toHaveBeenCalled();
+    const attemptId = vi.mocked(api.openProject).mock.calls[0]![3]!;
+    vi.mocked(api.getProjectOperation).mockResolvedValueOnce({ ok: true, data: { state: "done", attemptId, response } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check project operation" })));
+    expect(onOpened).toHaveBeenCalledExactlyOnceWith(response);
+    expect(api.openProject).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("export dialog input isolation", () => {
+  it("locks ambiguous export start until status identifies this attempt, not an earlier result", async () => {
+    const close = vi.fn();
+    vi.mocked(api.startExport).mockResolvedValue({ ok: false, code: "REQUEST_TIMEOUT", message: "Timed out" });
+    render(<ExportDialog config={config} onClose={close} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start export" })));
+    const attemptId = vi.mocked(api.startExport).mock.calls[0]![1]!;
+    const dialog = screen.getByRole("dialog");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(close).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Export again" })).toBeNull();
+    for (const data of [
+      { state: "idle" as const, percent: 0 },
+      { state: "done" as const, percent: 100, attemptId: "00000000-0000-4000-8000-000000000002" },
+    ]) {
+      vi.mocked(api.getExport).mockResolvedValueOnce({ ok: true, data });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check export status" })));
+      expect(screen.getByRole("alert").textContent).toContain("EXPORT_START_UNCONFIRMED");
+      expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    }
+    vi.mocked(api.getExport).mockResolvedValueOnce({ ok: true, data: { state: "done", percent: 100, attemptId, outputPath: "C:\\done.mp4" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check export status" })));
+    expect(screen.getByRole("status").textContent).toContain("Export finished");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(api.startExport).toHaveBeenCalledTimes(1);
+  });
+
+  it("guards duplicate reconciliation, retains read errors and adopts a matching running attempt", async () => {
+    vi.mocked(api.startExport).mockResolvedValue({ ok: false, code: "HTTP_500", message: "Unexpected failure" });
+    render(<ExportDialog config={config} onClose={vi.fn()} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start export" })));
+    const check = deferred<Awaited<ReturnType<typeof api.getExport>>>();
+    vi.mocked(api.getExport).mockReturnValueOnce(check.promise);
+    const button = screen.getByRole("button", { name: "Check export status" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(api.getExport).toHaveBeenCalledTimes(1);
+    await act(async () => check.resolve({ ok: false, code: "UNREACHABLE", message: "Offline" }));
+    expect(screen.getByRole("alert").textContent).toContain("[UNREACHABLE]");
+    const attemptId = vi.mocked(api.startExport).mock.calls[0]![1]!;
+    vi.mocked(api.getExport).mockResolvedValueOnce({ ok: true, data: { state: "running", percent: 5, attemptId } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check export status" })));
+    expect(screen.getByRole("progressbar")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Cancel export" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("unlocks definitive export rejection without a status check", async () => {
+    vi.mocked(api.startExport).mockResolvedValue({ ok: false, code: "OFFLINE_MEDIA", message: "Restore source" });
+    const close = vi.fn();
+    render(<ExportDialog config={config} onClose={close} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start export" })));
+    expect(screen.getByRole("alert").textContent).toContain("[OFFLINE_MEDIA]");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(api.getExport).not.toHaveBeenCalled();
+  });
+
+  it("does not display an earlier completion as success while a new start is unconfirmed", async () => {
+    vi.mocked(api.startExport)
+      .mockResolvedValueOnce({ ok: true, data: { state: "done", percent: 100, outputPath: "C:\\earlier.mp4" } })
+      .mockResolvedValueOnce({ ok: false, code: "UNREACHABLE", message: "Response lost" });
+    render(<ExportDialog config={config} onClose={vi.fn()} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start export" })));
+    expect(screen.getByText("C:\\earlier.mp4")).toBeDefined();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Export again" })));
+    expect(screen.queryByText("C:\\earlier.mp4")).toBeNull();
+    expect(screen.getByRole("button", { name: "Check export status" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("keeps an unexpected idle start response locked and ignores late reconciliation after unmount", async () => {
+    vi.mocked(api.startExport).mockResolvedValue({ ok: true, data: { state: "idle", percent: 0 } });
+    const close = vi.fn();
+    const view = render(<ExportDialog config={config} onClose={close} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start export" })));
+    expect(screen.getByRole("alert").textContent).toContain("[BAD_RESPONSE]");
+    const check = deferred<Awaited<ReturnType<typeof api.getExport>>>();
+    vi.mocked(api.getExport).mockReturnValueOnce(check.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Check export status" }));
+    view.unmount();
+    const attemptId = vi.mocked(api.startExport).mock.calls[0]![1]!;
+    await act(async () => check.resolve({ ok: true, data: { state: "done", percent: 100, attemptId } }));
+    expect(close).not.toHaveBeenCalled();
+    expect(api.startExport).toHaveBeenCalledTimes(1);
+  });
+
   async function startRunning() {
     vi.mocked(api.startExport).mockResolvedValue({ ok: true, data: { state: "running", percent: 0 } });
     render(<ExportDialog config={config} onClose={vi.fn()} />);

@@ -70,6 +70,7 @@ export function App() {
         project={opened.project}
         folder={opened.folder}
         health={health}
+        importEnabled={closing === null}
         warnings={opened.warnings}
         onClose={() => { if (closing === null) void close(); }}
       />

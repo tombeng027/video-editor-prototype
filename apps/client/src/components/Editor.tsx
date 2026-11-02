@@ -16,9 +16,9 @@ import { exportDisabledReason, saveLabel, type SaveStatus } from "../exportStatu
 import { Splitter } from "./Splitter.js";
 import { StatusArea } from "./StatusArea.js";
 
-type Props = { config: EngineConfig; project: Project; folder: string; health: HealthResult | null; warnings?: ProjectResponse["warnings"]; onClose: () => void };
+type Props = { config: EngineConfig; project: Project; folder: string; health: HealthResult | null; warnings?: ProjectResponse["warnings"]; onClose: () => void; importEnabled?: boolean };
 
-export function Editor({ config, project: initialProject, folder, health, warnings, onClose }: Props) {
+export function Editor({ config, project: initialProject, folder, health, warnings, onClose, importEnabled = true }: Props) {
   const [project, setProject] = useState(initialProject);
   const proxyStates = useProxyStatus(config, () => {
     void getProject(config).then((r) => r.ok && setProject(r.data.project));
@@ -54,7 +54,7 @@ export function Editor({ config, project: initialProject, folder, health, warnin
       setSaveStatus("saving");
       const result = await sendCommands(config, plan.commands);
       if (!result.ok) {
-        setEditMessage(result.message);
+        setEditMessage(`[${result.code}] ${result.message}`);
         setSaveStatus("error");
         return false;
       }
@@ -126,7 +126,7 @@ export function Editor({ config, project: initialProject, folder, health, warnin
 
       <div className="workspace">
         <div className="upper" style={{ gridTemplateColumns: `${assetsWidth}px 6px 1fr ${assistantOpen ? `6px ${assistantWidth}px` : ""}` }}>
-          <AssetsPane config={config} project={project} proxyStates={proxyStates} offline={offline} onProject={setProject} onAddToTimeline={addToTimeline} />
+          <AssetsPane config={config} project={project} proxyStates={proxyStates} offline={offline} onProject={setProject} onAddToTimeline={addToTimeline} enabled={importEnabled} />
           <Splitter
             orientation="vertical"
             label="Resize assets pane"

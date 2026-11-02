@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { ProjectResponse, RecentProject } from "@ve/schema";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig, HealthResult } from "../engine.js";
-import { listRecent, openProject, type ApiResult } from "../projectApi.js";
+import { listRecent, openProject } from "../projectApi.js";
+import { useProjectOperation } from "../useProjectOperation.js";
+import { Modal } from "./Modal.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { StatusArea } from "./StatusArea.js";
 
@@ -16,7 +18,12 @@ export function Landing({ config, health, onOpened }: Props) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const operation = useProjectOperation(config, (response) => {
+    if (response.recoveredFromBackup) window.alert("The project file was damaged, so the last backup was loaded instead.");
+    onOpened(response);
+  });
+  const busy = picking || operation.busy;
   const [recentError, setRecentError] = useState<string | null>(null);
   const pending = useRef(false);
   const pickFolder = getBridge()?.pickFolder;
@@ -32,38 +39,23 @@ export function Landing({ config, health, onOpened }: Props) {
     return () => { active = false; };
   }, [config, engineReady]);
 
-  const finish = (result: ApiResult<ProjectResponse>) => {
-    setBusy(false);
-    pending.current = false;
-    if (!result.ok) return setMessage(`[${result.code}] ${result.message}`);
-    if (result.data.recoveredFromBackup) {
-      window.alert("The project file was damaged, so the last backup was loaded instead.");
-    }
-    onOpened(result.data);
-  };
-
   const open = async (folder: string) => {
-    if (pending.current || creating) return;
-    pending.current = true;
-    setBusy(true);
+    if (pending.current || operation.locked.current || creating) return;
     setMessage(null);
-    finish(await openProject(config, folder));
+    await operation.start((attemptId) => openProject(config, folder, undefined, attemptId));
   };
 
   const browseAndOpen = async () => {
-    if (pending.current || creating) return;
+    if (pending.current || operation.locked.current || creating) return;
     pending.current = true;
-    setBusy(true);
+    setPicking(true);
     setMessage(null);
     try {
       const folder = pickFolder ? await pickFolder("Open project folder") : window.prompt("Project folder path");
-      if (folder) finish(await openProject(config, folder));
-      else { pending.current = false; setBusy(false); }
+      if (folder) await operation.start((attemptId) => openProject(config, folder, undefined, attemptId));
     } catch (error) {
-      pending.current = false;
-      setBusy(false);
       setMessage(`[FOLDER_PICK_FAILED] ${error instanceof Error ? error.message : "Could not choose a folder."} Retry Open project.`);
-    }
+    } finally { pending.current = false; setPicking(false); }
   };
 
   return (
@@ -71,7 +63,7 @@ export function Landing({ config, health, onOpened }: Props) {
       <h1>Video Editor Prototype</h1>
       <div className="actions">
         <button className="primary" disabled={!engineReady || busy} onClick={() => {
-          if (!pending.current && !creating) setCreating(true);
+          if (!pending.current && !operation.locked.current && !creating) setCreating(true);
         }}>
           Create new project
         </button>
@@ -81,6 +73,7 @@ export function Landing({ config, health, onOpened }: Props) {
       </div>
       {!engineReady && <p className="placeholder">Waiting for the engine…</p>}
       {message && <p role="alert" className="error">{message}</p>}
+      {operation.phase === "idle" && operation.error && <p role="alert" className="error">{operation.error}</p>}
       <section aria-label="Recent projects">
         <h2>Recent projects</h2>
         {recentError && <p role="alert" className="error">{recentError}</p>}
@@ -100,6 +93,12 @@ export function Landing({ config, health, onOpened }: Props) {
         )}
       </section>
       <StatusArea result={health} />
+      {operation.busy && <Modal label="Open project" dismissible={false} onClose={() => undefined}>
+        <h2>Open project</h2>
+        <p role="status">{operation.phase === "pending" ? "Opening project... Waiting for preparation." : "Open outcome is unconfirmed. Check this attempt before retrying or leaving."}</p>
+        {operation.error && <p role="alert" className="error">{operation.error}</p>}
+        {(operation.phase === "unknown" || operation.phase === "checking") && <button disabled={operation.phase === "checking"} onClick={() => void operation.check()}>Check project operation</button>}
+      </Modal>}
       {creating && (
         <NewProjectDialog
           config={config}

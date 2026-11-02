@@ -3,6 +3,7 @@ import type { ProjectResponse } from "@ve/schema";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig } from "../engine.js";
 import { createProject, getDefaultFolder } from "../projectApi.js";
+import { useProjectOperation } from "../useProjectOperation.js";
 import { Modal } from "./Modal.js";
 import {
   DEFAULT_FPS_INDEX,
@@ -29,7 +30,8 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
   });
   const [error, setError] = useState<string | null>(null);
   const [locationWarning, setLocationWarning] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const operation = useProjectOperation(config, onCreated);
+  const busy = operation.busy;
   const [picking, setPicking] = useState(false);
   const pending = useRef(false);
   const locationEdited = useRef(false);
@@ -41,21 +43,21 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
     void getDefaultFolder(config).then((result) => {
       if (!active) return;
       if (result.ok) {
-        if (!pending.current && !locationEdited.current) setForm((f) => (f.folder ? f : { ...f, folder: result.data.folder }));
+        if (!pending.current && !operation.locked.current && !locationEdited.current) setForm((f) => (f.folder ? f : { ...f, folder: result.data.folder }));
       }
       else setLocationWarning(`[${result.code}] Could not load the default location: ${result.message} Choose a location manually.`);
     });
     return () => { active = false; };
-  }, [config]);
+  }, [config, operation.locked]);
 
   const update = <K extends keyof NewProjectForm>(key: K, value: NewProjectForm[K]) => {
-    if (pending.current) return;
+    if (pending.current || operation.locked.current) return;
     if (key === "folder") locationEdited.current = true;
     setForm((f) => ({ ...f, [key]: value }));
   };
 
   const browse = async () => {
-    if (pending.current || !pickFolder) return;
+    if (pending.current || operation.locked.current || !pickFolder) return;
     pending.current = true;
     setPicking(true);
     setError(null);
@@ -75,31 +77,24 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (pending.current) return;
+    if (pending.current || operation.locked.current) return;
     const problem = validateNewProject(form);
     if (problem) return setError(problem);
-    pending.current = true;
-    setBusy(true);
     setError(null);
     const res = RESOLUTION_PRESETS[form.resolutionIndex]!;
-    const result = await createProject(config, {
+    await operation.start((attemptId) => createProject(config, {
+      attemptId,
       folder: projectFolderFor(form.folder, form.name),
       name: form.name.trim(),
       fps: FPS_PRESETS[form.fpsIndex]!.value,
       width: res.width,
       height: res.height,
       fpsFromFirstImport: form.matchFirstImport,
-    });
-    if (!result.ok) {
-      pending.current = false;
-      setBusy(false);
-      return setError(`[${result.code}] ${result.message}`);
-    }
-    onCreated(result.data);
+    }));
   };
 
   const cancel = () => {
-    if (!pending.current) onCancel();
+    if (!pending.current && !operation.locked.current) onCancel();
   };
 
   return (
@@ -148,10 +143,13 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
             Match the first imported video
           </label>
         </fieldset>
-        {busy && <p role="status">Creating project... Please wait. Creation cannot be cancelled once submitted.</p>}
+        {operation.phase === "pending" && <p role="status">Creating project... Please wait. Creation cannot be cancelled once submitted.</p>}
+        {(operation.phase === "unknown" || operation.phase === "checking") && <p role="status">Creation outcome is unconfirmed. Check this attempt before retrying or leaving.</p>}
         {picking && <p role="status">Choosing a folder...</p>}
         {error && <p role="alert" className="error">{error}</p>}
+        {operation.error && <p role="alert" className="error">{operation.error}</p>}
         <div className="actions">
+          {(operation.phase === "unknown" || operation.phase === "checking") && <button type="button" disabled={operation.phase === "checking"} onClick={() => void operation.check()}>Check project operation</button>}
           <button type="button" onClick={cancel} disabled={busy || picking}>Cancel</button>
           <button type="submit" className="primary" disabled={busy || picking}>{busy ? "Creating..." : "Create"}</button>
         </div>

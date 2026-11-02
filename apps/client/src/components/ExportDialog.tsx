@@ -6,11 +6,17 @@ import { cancelExport, getExport, startExport } from "../projectApi.js";
 import { Modal } from "./Modal.js";
 
 type Props = { config: EngineConfig; onClose: () => void };
+const rejectedStartCodes = new Set(["EMPTY_TIMELINE", "OFFLINE_MEDIA", "TOO_MANY_CUTS", "MISSING_ASSET",
+  "EXPORT_BUSY", "EXPORT_CANCELLED", "NO_PROJECT", "PROJECT_CHANGED", "INVALID_REQUEST"]);
 
 export function ExportDialog({ config, onClose }: Props) {
   const [state, setState] = useState<ExportState>({ state: "idle", percent: 0 });
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [unknownStart, setUnknownStart] = useState(false);
+  const [checkingStart, setCheckingStart] = useState(false);
+  const attempt = useRef<string | null>(null);
+  const pendingCheck = useRef(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
@@ -27,20 +33,48 @@ export function ExportDialog({ config, onClose }: Props) {
   }, []);
 
   const start = useCallback(async () => {
-    if (pendingStart.current) return;
+    if (pendingStart.current || unknownStart || pendingCheck.current) return;
     pendingStart.current = true;
     const request = ++revision.current;
     setStarting(true);
+    setState({ state: "idle", percent: 0 });
     setError(null);
     setPollError(null);
     setCancelRequested(false);
-    const result = await startExport(config);
+    attempt.current = crypto.randomUUID();
+    const result = await startExport(config, attempt.current);
     if (!mounted.current || request !== revision.current) return;
-    if (result.ok) setState(result.data);
-    else setError(`[${result.code}] ${result.message}`);
+    if (result.ok && result.data.state !== "idle") setState(result.data);
+    else if (result.ok) {
+      setError("[BAD_RESPONSE] Export start returned idle; completion is not confirmed.");
+      setUnknownStart(true);
+    }
+    else {
+      setError(`[${result.code}] ${result.message}`);
+      setUnknownStart(!rejectedStartCodes.has(result.code));
+    }
     pendingStart.current = false;
     setStarting(false);
-  }, [config]);
+  }, [config, unknownStart]);
+
+  const checkStart = async () => {
+    if (pendingCheck.current || !unknownStart) return;
+    pendingCheck.current = true;
+    const request = ++revision.current;
+    setCheckingStart(true);
+    const result = await getExport(config);
+    if (!mounted.current || request !== revision.current) return;
+    if (!result.ok) setError(`[${result.code}] ${result.message} Export start is still unconfirmed.`);
+    else if (result.data.attemptId !== attempt.current || result.data.state === "idle") {
+      setError("[EXPORT_START_UNCONFIRMED] Status does not identify this export attempt. A late request may still arrive; no automatic retry is safe. Check again. If the engine was restarted, reload the app after confirming it stopped.");
+    } else {
+      setState(result.data);
+      setUnknownStart(false);
+      setError(null);
+    }
+    pendingCheck.current = false;
+    setCheckingStart(false);
+  };
 
   useEffect(() => {
     if (state.state !== "running" || cancelling || pollError) return;
@@ -82,15 +116,16 @@ export function ExportDialog({ config, onClose }: Props) {
 
   const running = state.state === "running";
   const close = () => {
-    if (!pendingStart.current && !running) onClose();
+    if (!pendingStart.current && !running && !unknownStart && !pendingCheck.current) onClose();
   };
 
   return (
-    <Modal label="Export video" dismissible={!running && !starting} onClose={close}>
+    <Modal label="Export video" dismissible={!running && !starting && !unknownStart} onClose={close}>
         <h2>Export video</h2>
         <p className="muted">Renders the whole timeline to an MP4 (H.264 + AAC) from your original media, at the project's size and frame rate.</p>
 
         {starting && <p role="status">Starting export... Please wait.</p>}
+        {unknownStart && <p role="status">Export start is unconfirmed. Check this attempt's status before retrying or closing.</p>}
         {state.state === "idle" && !error && !starting && <p>Ready to export into the project's exports folder.</p>}
         {running && (
           <>
@@ -111,7 +146,9 @@ export function ExportDialog({ config, onClose }: Props) {
         {running && cancelRequested && <p role="status">Cancellation requested. Waiting for export cleanup to finish.</p>}
 
         <div className="row modal-actions">
-          {running ? (
+          {unknownStart ? (
+            <button disabled={checkingStart} onClick={() => void checkStart()}>{checkingStart ? "Checking export status..." : "Check export status"}</button>
+          ) : running ? (
             <>
               <button disabled={cancelling || cancelRequested} onClick={() => void cancel()}>{cancelling ? "Requesting cancellation..." : "Cancel export"}</button>
               {pollError && <button onClick={() => {

@@ -18,7 +18,7 @@ export const HealthResponseSchema = z.object({
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
 export const ApiErrorSchema = z.object({
-  error: z.object({ code: z.string(), message: z.string() }),
+  error: z.object({ code: z.string(), message: z.string(), diagnosticId: z.uuid().optional() }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
@@ -26,6 +26,7 @@ export const TOKEN_HEADER = "x-engine-token";
 export const TOKEN_QUERY = "token";
 
 export const CreateProjectRequestSchema = z.object({
+  attemptId: z.uuid().optional(),
   folder: z.string().min(1),
   name: z.string().trim().min(1).max(120),
   fps: RationalSchema,
@@ -35,7 +36,7 @@ export const CreateProjectRequestSchema = z.object({
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
-export const OpenProjectRequestSchema = z.object({ folder: z.string().min(1) });
+export const OpenProjectRequestSchema = z.object({ folder: z.string().min(1), attemptId: z.uuid().optional() });
 export type OpenProjectRequest = z.infer<typeof OpenProjectRequestSchema>;
 
 export const CloseProjectRequestSchema = z.object({
@@ -50,6 +51,13 @@ export const ProjectResponseSchema = z.object({
   warnings: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
 });
 export type ProjectResponse = z.infer<typeof ProjectResponseSchema>;
+
+export const ProjectOperationSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("pending"), attemptId: z.uuid() }),
+  z.object({ state: z.literal("done"), attemptId: z.uuid(), response: ProjectResponseSchema }),
+  z.object({ state: z.literal("failed"), attemptId: z.uuid(), error: ApiErrorSchema.shape.error }),
+]);
+export type ProjectOperation = z.infer<typeof ProjectOperationSchema>;
 
 export const CommandsRequestSchema = z.object({ commands: z.array(CommandSchema).min(1) });
 export type CommandsRequest = z.infer<typeof CommandsRequestSchema>;
@@ -101,7 +109,10 @@ export type OfflineAsset = z.infer<typeof OfflineAssetSchema>;
 export const MediaStatusResponseSchema = z.object({ offline: z.array(OfflineAssetSchema) });
 export type MediaStatusResponse = z.infer<typeof MediaStatusResponseSchema>;
 
+export const StartExportRequestSchema = z.object({ attemptId: z.uuid().optional() });
+
 export const ExportStateSchema = z.object({
+  attemptId: z.uuid().optional(),
   state: z.enum(["idle", "running", "done", "failed", "cancelled"]),
   percent: z.number().min(0).max(100),
   outputPath: z.string().optional(),

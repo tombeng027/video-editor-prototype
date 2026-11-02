@@ -63,8 +63,9 @@ MyProject/
 
 | Route | Purpose |
 |---|---|
-| `POST /project/create` | Create the folder layout and an empty project. Existing main or backup prevents creation (`ALREADY_EXISTS`). Successful response may include nonfatal recent-index warnings. |
-| `POST /project/open` | Open a validated main/backup (`NOT_FOUND`, `CORRUPT`, `STORE_IO_FAILED`). Successful response may include nonfatal recent-index warnings. |
+| `POST /project/create` | Create the folder layout and an empty project. Existing main or backup prevents creation (`ALREADY_EXISTS`). Accepts optional UUID `attemptId`; successful response may include recent-index or post-commit preparation warnings. |
+| `POST /project/open` | Open a validated main/backup (`NOT_FOUND`, `CORRUPT`, `STORE_IO_FAILED`). Accepts optional UUID `attemptId`; successful response may include recent-index or post-commit preparation warnings. |
+| `GET /project/operations/:attemptId` | Returns `{state: pending, attemptId}`, `{state: done, attemptId, response}` or `{state: failed, attemptId, error}`. Done returns the still-active generation's current project plus operation warnings, not a stale opening snapshot. Switch/close/reopen rejects with `PROJECT_CHANGED`; unknown/evicted/restarted attempts return `OPERATION_UNKNOWN`, not proof a retry is safe. |
 | `POST /project/commands` | Apply a command batch atomically, autosave, return `{project, inverse}`. Invalid batches return 422 with a command error code. |
 | `POST /project/save` | Manual save (`SAVE_FAILED` / `SAVE_CLEANUP_FAILED`). |
 | `POST /project/close` | Body may include `{expectedProject: {id, folder}}`. Current client always sends its known identity; mismatch inside the session queue returns `PROJECT_CHANGED` without closing the other project or running close hooks. No body/empty body remains compatible with older callers. No active project permits a cleanup-confirmation retry. `{ok: true}` is returned only after close hooks settle; hook/transport failure may occur after the session already closed. |
@@ -72,13 +73,24 @@ MyProject/
 | `POST /project/import` | Import files by reference or copy. Body: `{paths, mode}`. Probes each file with ffprobe, rejects duplicates (quick content hash) and unsupported files per file without failing the batch, adds the assets in one command batch and queues proxies. Returns `{project, imported, failed}`. |
 | `GET /project/proxies` / `GET /project/events` | Proxy progress as a list, and as server-sent events (`event: proxy`). The token goes in the `?token=` query. |
 | `GET /media/:assetId/proxy` | Serves the proxy with HTTP range support (206/416), for `<video>` seeking. |
+| `POST /project/export` / `GET /project/export` | Start accepts optional `{attemptId}` UUID; status carries it through the accepted job's lifecycle. Empty/bodyless starts remain compatible. Client start/status have 15-second deadlines; ambiguous start remains locked until a matching non-idle status confirms that attempt. See [Preview and Export](./05-preview-and-export.md). |
 
 Folder and file paths must be absolute. All routes need the session token.
 
 The current client keeps a native recovery modal until close completion is confirmed, with 15-second close/status deadlines. Failure requires an authoritative `GET /project` before retry: no project means session closed but cleanup is still unconfirmed; same project allows guarded retry; a different project is adopted explicitly with a warning rather than blindly closed. A client timeout/abort does not undo engine work. This does not certify simultaneous multi-client lifecycle control or supply general mutation reconciliation.
 
+Create/open now also have 15-second fetch/body deadlines and use a fresh attempt UUID. Ambiguous transport/server/response errors keep creation/navigation locked with Check project operation; only a matching done result adopts the project, or a matching failed result permits explicit retry/cancel. Pending/unknown/changed outcomes retain the lock. Status checks never resubmit create/open. Legacy callers may omit attempt IDs; deploy updated client/schema/engine together for recovery.
+
+The engine records at most **16 create/open attempts in memory**, reserving pending before asynchronous work and allowing only one create/open through preparation at a time (`PROJECT_OPERATION_BUSY`). Repeated retained IDs return `ATTEMPT_EXISTS`, not another mutation. This is a bounded recovery record, not durable history or indefinite idempotency: evicted IDs are no longer protected from later submission. A process restart forgets all attempts. No-project/current-folder checks alone cannot prove an unrecorded request will not arrive later.
+
+If project storage/session commitment succeeds but background cleanup/proxy preparation fails, the route returns the committed project with `PROJECT_PREPARATION_FAILED` and a diagnostic ID matching a safe JSON stderr record. It does not claim preparation succeeded or delete/recreate the saved project. Close/reopen after checking diagnostics; preview may be unavailable. Unknown core failures use `PROJECT_OPERATION_FAILED` with an ID retained in operation status. Core typed storage/validation failures retain their error semantics; broader logging remains partial K26.
+
+Unexpected errors escaping routes use `{error: {code: "ENGINE_UNEXPECTED_ERROR", message, diagnosticId}}` (500), not raw exception messages/stacks. IDs are server-generated UUIDs; the client validates the error shape and retains IDs in error text. Fastify malformed-body/content-type/size errors retain their 4xx status with `INVALID_REQUEST`; route-defined typed errors are unchanged. A diagnostic does not prove rollback or authorize retry of an uncertain mutation.
+
 ### Import details (implemented)
 
+- **Picker ownership/recovery (K24 slice):** choosing media has a visible pending state, duplicate-click guard and locked copy/reference choice. Picker rejection shows `MEDIA_PICK_FAILED` and permits retry; cancellation sends no import. Owner chose to allow Projects navigation: close initiation, project/engine identity change or unmount invalidates the picker selection, so a late result never starts an import. Import already submitted is not cancelled by leaving; stale UI results are ignored, while existing engine lifecycle guards/cleanup remain authoritative.
+- **Import feedback:** batch and per-file errors show their codes. The browser-only typed path is locked while submitting, retained on failures and cleared only on fully confirmed success. Import fetch/body deadlines and ambiguous committed-outcome reconciliation remain open K24 work; this slice does not add automatic mutation retries.
 - **Media kinds:** video and audio. Images are rejected for now.
 - **Frame counts:** video durations are native frames at the file's own frame rate (`avg_frame_rate`, reduced rational). Audio uses a 1000/1 millisecond timebase.
 - **Paths:** reference mode stores the absolute path. Copy mode copies into `media/` (name collisions get `-1`, `-2`) and stores a project-relative path, so a copied project can be moved.

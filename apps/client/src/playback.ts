@@ -25,9 +25,10 @@ export function activeClipAt(project: Project, frame: number): ActiveClip | null
   return null;
 }
 
-/** Seconds into the source media for a (possibly fractional) timeline position. */
+/** Seconds into the clip's inclusive source range for a fractional timeline position. */
 export function sourceSeconds(clip: Clip, position: number, fps: Project["settings"]["fps"]): number {
-  return framesToSeconds(position - clip.timelineStart + clip.sourceIn, fps);
+  const sourceFrame = Math.min(clip.sourceOut - 1, Math.max(clip.sourceIn, position - clip.timelineStart + clip.sourceIn));
+  return framesToSeconds(sourceFrame, fps);
 }
 
 /**

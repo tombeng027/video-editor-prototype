@@ -13,6 +13,7 @@ import { ProxyManager, type ProxyRunner } from "./proxy.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
 import { RecentProjects } from "./recent.js";
 import { ProjectSession } from "./session.js";
+import { reportDiagnostic } from "./diagnostics.js";
 
 function tokensMatch(expected: string, provided: unknown): boolean {
   if (typeof provided !== "string") return false;
@@ -29,6 +30,22 @@ export async function buildApp(
   overrides: { proxyRunner?: ProxyRunner; probe?: ProbeFn; exportRunner?: ExportRunner; probeDuration?: DurationProbe } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
+  app.setErrorHandler((error, request, reply) => {
+    const status = error instanceof Error && "statusCode" in error &&
+      typeof error.statusCode === "number" && error.statusCode >= 400 && error.statusCode < 500
+      ? error.statusCode : 500;
+    if (status < 500) {
+      return reply.code(status).send(apiError("INVALID_REQUEST", "The engine could not process this request. Check its body, content type and size."));
+    }
+    const diagnosticId = reportDiagnostic("ENGINE_UNEXPECTED_ERROR", error, {
+      method: request.routeOptions.method instanceof Array ? request.routeOptions.method.join(",") : request.routeOptions.method,
+      route: request.routeOptions.url,
+    });
+    return reply.code(500).send({ error: {
+      code: "ENGINE_UNEXPECTED_ERROR", diagnosticId,
+      message: "Unexpected engine failure. Check local engine diagnostics using the diagnostic ID. The operation may have committed; reconcile its status before retrying.",
+    } } satisfies ApiError);
+  });
 
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || config.allowedOrigins.includes(origin)),

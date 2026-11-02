@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { ApiError } from "@ve/schema";
+import { StartExportRequestSchema, type ApiError } from "@ve/schema";
 import { ExportError, findOfflineAssets, type Exporter } from "./exporter.js";
 import { SessionError, type ProjectSession } from "./session.js";
 
@@ -24,9 +24,11 @@ export function registerExportRoutes(app: FastifyInstance, session: ProjectSessi
 
   app.get("/project/export", async () => exporter.state);
 
-  app.post("/project/export", async (_req, reply) => {
+  app.post("/project/export", async (req, reply) => {
+    const parsed = StartExportRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send(apiError("INVALID_REQUEST", "Invalid export attempt."));
     try {
-      return reply.code(202).send(await exporter.start());
+      return reply.code(202).send(await exporter.start(parsed.data.attemptId));
     } catch (e) {
       if (e instanceof ExportError) return reply.code(EXPORT_STATUS[e.code]).send(apiError(e.code, e.message));
       if (e instanceof SessionError) return reply.code(409).send(apiError(e.code, e.message));

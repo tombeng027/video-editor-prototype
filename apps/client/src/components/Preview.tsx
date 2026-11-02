@@ -11,6 +11,7 @@ type Overlay = "none" | "empty" | "gap" | "preparing";
 export function Preview({ config, project, clock }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const loadedAsset = useRef<string | null>(null);
+  const continuity = useRef<{ key: string; sourceOffset: number; holding: boolean } | null>(null);
   const [overlay, setOverlay] = useState<Overlay>("empty");
 
   const sync = useCallback(() => {
@@ -20,11 +21,13 @@ export function Preview({ config, project, clock }: Props) {
     const end = timelineDuration(project);
     const active = activeClipAt(project, Math.min(clock.frame, Math.max(0, end - 1)));
     if (!active) {
+      continuity.current = null;
       if (!el.paused) el.pause();
       setOverlay(end === 0 ? "empty" : "gap");
       return;
     }
     if (!active.asset.proxyPath) {
+      continuity.current = null;
       if (!el.paused) el.pause();
       setOverlay("preparing");
       return;
@@ -37,11 +40,21 @@ export function Preview({ config, project, clock }: Props) {
       el.src = proxyUrl(config, active.asset.id);
     }
     const fps = project.settings.fps;
-    const wanted = clampToProxy(sourceSeconds(active.clip, clock.position, fps), el.duration, fps);
+    const sourceOffset = active.clip.sourceIn - active.clip.timelineStart;
+    const discontinuous = continuity.current?.key !== key || continuity.current.sourceOffset !== sourceOffset;
+    const next = activeClipAt(project, clock.frame + 1);
+    // Stop native playback before it can decode across a removed range or into a gap.
+    const holdBoundary = !next || next.asset.id !== active.asset.id ||
+      next.asset.proxyPath !== active.asset.proxyPath ||
+      next.clip.sourceIn - next.clip.timelineStart !== sourceOffset;
+    const enteringHold = holdBoundary && !continuity.current?.holding;
+    continuity.current = { key, sourceOffset, holding: holdBoundary };
+    const wanted = clampToProxy(sourceSeconds(active.clip, holdBoundary ? clock.frame : clock.position, fps), el.duration, fps);
     el.playbackRate = clock.rate;
-    if (changed || needsSeek(el.currentTime, wanted, clock.playing, fps)) el.currentTime = wanted;
-    if (clock.playing && el.paused) void el.play().catch(() => undefined);
-    if (!clock.playing && !el.paused) el.pause();
+    if ((!clock.playing || holdBoundary) && !el.paused) el.pause();
+    if (changed || discontinuous || enteringHold ||
+      needsSeek(el.currentTime, wanted, clock.playing && !holdBoundary, fps)) el.currentTime = wanted;
+    if (clock.playing && !holdBoundary && el.paused) void el.play().catch(() => undefined);
   }, [clock, config, project]);
 
   useClockTick(clock, sync);

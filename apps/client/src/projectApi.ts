@@ -1,10 +1,12 @@
 import {
+  ApiErrorSchema,
   CommandsResponseSchema,
   DefaultFolderResponseSchema,
   ExportStateSchema,
   ImportResponseSchema,
   MediaStatusResponseSchema,
   ProjectResponseSchema,
+  ProjectOperationSchema,
   RecentProjectsResponseSchema,
   TOKEN_HEADER,
   type Command,
@@ -16,12 +18,15 @@ import {
   type ImportResponse,
   type MediaStatusResponse,
   type ProjectResponse,
+  type ApiError,
 } from "@ve/schema";
 import { z, type ZodType } from "zod";
 import type { EngineConfig } from "./engine.js";
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
 export const RECOVERY_TIMEOUT_MS = 15000;
+export const diagnosticMessage = (error: ApiError["error"]) =>
+  `${error.message}${error.diagnosticId ? ` Diagnostic ID: ${error.diagnosticId}` : ""}`;
 
 async function call<T>(
   config: EngineConfig,
@@ -47,8 +52,10 @@ async function call<T>(
       });
       const json: unknown = await res.json().catch(() => null);
       if (!res.ok) {
-        const err = (json as { error?: { code?: string; message?: string } } | null)?.error;
-        return { ok: false, code: err?.code ?? `HTTP_${res.status}`, message: err?.message ?? `Engine returned HTTP ${res.status}.` };
+        const parsed = ApiErrorSchema.safeParse(json);
+        return parsed.success
+          ? { ok: false, code: parsed.data.error.code, message: diagnosticMessage(parsed.data.error) }
+          : { ok: false, code: `HTTP_${res.status}`, message: `Engine returned HTTP ${res.status}.` };
       }
       const parsed = schema.safeParse(json);
       if (!parsed.success) return { ok: false, code: "BAD_RESPONSE", message: "Engine sent an unexpected response." };
@@ -71,10 +78,13 @@ async function call<T>(
 }
 
 export const createProject = (c: EngineConfig, req: CreateProjectRequest, f?: typeof fetch) =>
-  call<ProjectResponse>(c, "POST", "/project/create", ProjectResponseSchema, req, f);
+  call<ProjectResponse>(c, "POST", "/project/create", ProjectResponseSchema, req, f, RECOVERY_TIMEOUT_MS);
 
-export const openProject = (c: EngineConfig, folder: string, f?: typeof fetch) =>
-  call<ProjectResponse>(c, "POST", "/project/open", ProjectResponseSchema, { folder }, f);
+export const openProject = (c: EngineConfig, folder: string, f?: typeof fetch, attemptId?: string) =>
+  call<ProjectResponse>(c, "POST", "/project/open", ProjectResponseSchema, { folder, attemptId }, f, RECOVERY_TIMEOUT_MS);
+
+export const getProjectOperation = (c: EngineConfig, attemptId: string, f?: typeof fetch) =>
+  call(c, "GET", `/project/operations/${encodeURIComponent(attemptId)}`, ProjectOperationSchema, undefined, f, RECOVERY_TIMEOUT_MS);
 
 export const sendCommands = (c: EngineConfig, commands: Command[], f?: typeof fetch) =>
   call<CommandsResponse>(c, "POST", "/project/commands", CommandsResponseSchema, { commands }, f);
@@ -97,8 +107,8 @@ export const getMediaStatus = (c: EngineConfig, f?: typeof fetch) =>
 export const getExport = (c: EngineConfig, f?: typeof fetch) =>
   call<ExportState>(c, "GET", "/project/export", ExportStateSchema, undefined, f, RECOVERY_TIMEOUT_MS);
 
-export const startExport = (c: EngineConfig, f?: typeof fetch) =>
-  call<ExportState>(c, "POST", "/project/export", ExportStateSchema, {}, f);
+export const startExport = (c: EngineConfig, attemptId?: string, f?: typeof fetch) =>
+  call<ExportState>(c, "POST", "/project/export", ExportStateSchema, { attemptId }, f, RECOVERY_TIMEOUT_MS);
 
 export const cancelExport = (c: EngineConfig, f?: typeof fetch) =>
   call<ExportState>(c, "POST", "/project/export/cancel", ExportStateSchema, {}, f, RECOVERY_TIMEOUT_MS);

@@ -66,13 +66,17 @@ export class Exporter {
     return this.current;
   }
 
+  private report(state: ExportState, attemptId?: string) {
+    this.current = attemptId ? { ...state, attemptId } : state;
+  }
+
   /** Resolves when the running export (if any) has settled. */
   settled(): Promise<void> {
     return this.done;
   }
 
   /** Validates, then starts in the background; throws `ExportError` when export cannot begin. */
-  start(): Promise<ExportState> {
+  start(attemptId?: string): Promise<ExportState> {
     const open = this.session.open;
     if (!open) return Promise.reject(new SessionError("NO_PROJECT", "No project is open."));
     if (this.active) return Promise.reject(new ExportError("EXPORT_BUSY", "An export is already running or settling."));
@@ -86,7 +90,7 @@ export class Exporter {
     const epoch = this.epoch;
     const version = this.session.version;
     this.active = controller;
-    this.current = { state: "running", percent: 0 };
+    this.report({ state: "running", percent: 0 }, attemptId);
     const assertCurrent = () => {
       if (controller.signal.aborted || epoch !== this.epoch) {
         throw new ExportError("EXPORT_CANCELLED", "Export was cancelled before completion.");
@@ -108,16 +112,16 @@ export class Exporter {
           const args = buildExportArgs(plan, assets, part);
           resolve(this.current);
           await this.execute({
-            args, part, outFile, controller, epoch, assertCurrent,
+            args, part, outFile, controller, epoch, assertCurrent, attemptId,
             expectedSeconds: framesToSeconds(plan.totalFrames, plan.fps),
             frameSeconds: framesToSeconds(1, plan.fps),
           });
         } catch (error) {
           const failure = error instanceof ExportPlanError ? new ExportError(error.code, error.message) : error;
           if (epoch === this.epoch) {
-            this.current = controller.signal.aborted
+            this.report(controller.signal.aborted
               ? { state: "cancelled", percent: 0 }
-              : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: failure instanceof Error ? failure.message : "Export failed." };
+              : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: failure instanceof Error ? failure.message : "Export failed." }, attemptId);
           }
           reject(failure);
         } finally {
@@ -133,6 +137,7 @@ export class Exporter {
   }
 
   private async execute(job: {
+    attemptId?: string;
     args: string[];
     part: string;
     outFile: string;
@@ -155,7 +160,7 @@ export class Exporter {
           const percent = Math.min(99, Math.floor(fraction * 100));
           if (percent !== last && epoch === this.epoch && !job.controller.signal.aborted) {
             last = percent;
-            this.current = { state: "running", percent };
+            this.report({ state: "running", percent }, job.attemptId);
           }
         },
       });
@@ -173,7 +178,7 @@ export class Exporter {
       job.assertCurrent();
       await rm(job.part);
       job.assertCurrent();
-      this.current = { state: "done", percent: 100, outputPath: job.outFile };
+      this.report({ state: "done", percent: 100, outputPath: job.outFile }, job.attemptId);
     } catch (e) {
       const cleanupErrors: string[] = [];
       for (const file of published ? [job.part, job.outFile] : [job.part]) {
@@ -182,11 +187,11 @@ export class Exporter {
       }
       if (cleanupErrors.length) {
         const message = `Export did not complete. Cleanup failed: ${cleanupErrors.join("; ")}`;
-        if (epoch === this.epoch) this.current = { state: "failed", percent: 0, code: "EXPORT_CLEANUP_FAILED", message };
+        if (epoch === this.epoch) this.report({ state: "failed", percent: 0, code: "EXPORT_CLEANUP_FAILED", message }, job.attemptId);
         else console.error(`EXPORT_CLEANUP_FAILED: ${message}`);
-      } else if (epoch === this.epoch) this.current = job.controller.signal.aborted
+      } else if (epoch === this.epoch) this.report(job.controller.signal.aborted
         ? { state: "cancelled", percent: 0 }
-        : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: e instanceof Error ? e.message : "Export failed." };
+        : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: e instanceof Error ? e.message : "Export failed." }, job.attemptId);
     }
   }
 

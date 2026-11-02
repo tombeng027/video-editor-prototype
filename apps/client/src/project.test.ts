@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cancelExport, closeProject, createProject, getDefaultFolder, getExport, getProject, listRecent, RECOVERY_TIMEOUT_MS, sendCommands } from "./projectApi.js";
+import { cancelExport, closeProject, createProject, diagnosticMessage, getDefaultFolder, getExport, getProject, getProjectOperation, listRecent, openProject, RECOVERY_TIMEOUT_MS, sendCommands, startExport } from "./projectApi.js";
 import { FPS_PRESETS, projectFolderFor, validateNewProject } from "./presets.js";
 
 const config = { url: "http://engine", token: "tok" };
@@ -26,6 +26,18 @@ describe("presets", () => {
 });
 
 describe("projectApi", () => {
+  it("retains validated diagnostic IDs and codes without misclassifying engine failures as unreachable", async () => {
+    const diagnosticId = "00000000-0000-4000-8000-000000000001";
+    const error = { code: "ENGINE_UNEXPECTED_ERROR", message: "Check status before retrying.", diagnosticId };
+    expect(await closeProject(config, undefined, json(500, { error }))).toEqual({
+      ok: false, code: error.code, message: `${error.message} Diagnostic ID: ${diagnosticId}`,
+    });
+    expect(diagnosticMessage(error)).toContain(diagnosticId);
+    expect(await getProject(config, json(500, { error: { ...error, diagnosticId: "invalid" } })))
+      .toMatchObject({ ok: false, code: "HTTP_500" });
+    expect(await getProject(config, json(500, { error: { code: {}, message: [] } })))
+      .toMatchObject({ ok: false, code: "HTTP_500" });
+  });
   it("sends the expected project identity with guarded close", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(json(200, { ok: true }));
     const expected = { id: "p", folder: "C:\\Demo" };
@@ -46,7 +58,13 @@ describe("projectApi", () => {
     vi.useFakeTimers();
     try {
       const close = (c: typeof config, f: typeof fetch) => closeProject(c, undefined, f);
-      for (const operation of [close, getProject, getExport, cancelExport]) {
+      const start = (c: typeof config, f: typeof fetch) => startExport(c, "00000000-0000-4000-8000-000000000001", f);
+      const create = (c: typeof config, f: typeof fetch) => createProject(c, {
+        folder: "C:\\test", name: "test", fps: { num: 30, den: 1 }, width: 640, height: 360,
+      }, f);
+      const open = (c: typeof config, f: typeof fetch) => openProject(c, "C:\\test", f);
+      const status = (c: typeof config, f: typeof fetch) => getProjectOperation(c, "00000000-0000-4000-8000-000000000001", f);
+      for (const operation of [close, getProject, getExport, cancelExport, start, create, open, status]) {
         let signal: AbortSignal | null | undefined;
         const fetchImpl: typeof fetch = (_input, init) => {
           signal = init?.signal;
@@ -65,6 +83,28 @@ describe("projectApi", () => {
     }
   });
 
+  it("sends the open attempt and parses operation-specific pending/failed status", async () => {
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(json(500, {}));
+    await openProject(config, "C:\\Demo", fetchImpl, attemptId);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toEqual({ folder: "C:\\Demo", attemptId });
+    expect(await getProjectOperation(config, attemptId, json(200, { state: "pending", attemptId })))
+      .toEqual({ ok: true, data: { state: "pending", attemptId } });
+    expect(await getProjectOperation(config, attemptId, json(200, { state: "failed", attemptId, error: { code: "NOT_FOUND", message: "Missing project" } })))
+      .toMatchObject({ ok: true, data: { state: "failed", error: { code: "NOT_FOUND" } } });
+    expect(await getProjectOperation(config, attemptId, json(200, { state: "done", attemptId })))
+      .toMatchObject({ ok: false, code: "BAD_RESPONSE" });
+  });
+
+  it("correlates export start and status with the submitted attempt", async () => {
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(json(202, { state: "running", percent: 0, attemptId }));
+    expect(await startExport(config, attemptId, fetchImpl)).toEqual({ ok: true, data: { state: "running", percent: 0, attemptId } });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toEqual({ attemptId });
+    expect(await getExport(config, json(200, { state: "done", percent: 100, attemptId })))
+      .toMatchObject({ ok: true, data: { attemptId, state: "done" } });
+  });
+
   it("bounds a stalled response body and clears deadlines on a successful response", async () => {
     vi.useFakeTimers();
     try {
@@ -76,6 +116,9 @@ describe("projectApi", () => {
       const result = closeProject(config, undefined, fetchImpl);
       await vi.advanceTimersByTimeAsync(RECOVERY_TIMEOUT_MS);
       expect(await result).toMatchObject({ ok: false, code: "REQUEST_TIMEOUT" });
+      const exportResult = startExport(config, "00000000-0000-4000-8000-000000000001", fetchImpl);
+      await vi.advanceTimersByTimeAsync(RECOVERY_TIMEOUT_MS);
+      expect(await exportResult).toMatchObject({ ok: false, code: "REQUEST_TIMEOUT" });
       expect(await closeProject(config, undefined, json(200, { ok: true }))).toMatchObject({ ok: true });
       expect(vi.getTimerCount()).toBe(0);
     } finally {

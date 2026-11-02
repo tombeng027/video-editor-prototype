@@ -120,9 +120,48 @@ Use synthetic projects/media, not user work; network fault injection is a test t
 
 `REQUEST_TIMEOUT` means the client deadline expired, not that an engine mutation was cancelled or rolled back. Broader mutation recovery is still K24 work.
 
+### Ambiguous export-start acceptance (K24 slice)
+
+- Use an isolated engine/project or synthetic API fixture. Lose the start response after reservation, or stall fetch/body parsing beyond 15 seconds. Start must become explicitly unconfirmed, with no Export again/Close; Escape/native cancel must not dismiss it.
+- Check export status: failed reads preserve the lock and show codes. Idle, a missing attempt ID or an earlier attempt's terminal state must not unlock this attempt. A matching running attempt returns to progress/cancellation; matching done/failed/cancelled allows close/retry.
+- Ensure repeated clicks produce one start/check at a time; status reconciliation sends only GET, never a second POST. Explicit known start rejection (e.g. OFFLINE_MEDIA) permits retry/close without pretending the export succeeded.
+- Engine tests verify UUID validation, progress/terminal correlation, busy rejection preserving the original ID, and reset clearing it. Bodyless starts remain supported.
+- If the old engine stopped/reset or the request never arrived, there may be no matching status: keep the conservative lock, or reload only after verifying the old engine stopped. Attempt IDs are not persisted or an idempotent-retry contract. No multi-client lifecycle guarantee is implied.
+
+### Create/open recovery acceptance (K24 slice)
+
+- With synthetic responses/isolated projects, lose or stall create/open response beyond 15 seconds, including body parsing. New project controls/Cancel and Landing navigation must remain locked; Escape/native cancel must not dismiss recovery. Check project operation sends only GET for the same attempt UUID.
+- Failed checks, pending, unknown IDs and wrong/changed project status must not adopt a project or submit another create/open. Matching done adopts the current authoritative project with backup/preparation/recent warnings; matching failed unlocks for explicit retry/cancel. Explicit retry uses a new ID.
+- Inject a background preparation failure after create/open commits: API must return the saved/open project with `PROJECT_PREPARATION_FAILED`, not imply creation failed or recreate/delete its files. Verify saved identity and the warning in Editor.
+- Engine acceptance covers repeated retained IDs, overlapping create/open, authentication/UUID validation, current edits rather than opening snapshots, generation changes and bounded-record eviction. This is not a power-loss, multi-client transaction or durable idempotency guarantee.
+- If the attempt is unknown after restart/eviction or never arrived, preserve uncertainty; reload only after verifying the old engine stopped. Media-picker/import, preview/SSE and general diagnostic recovery remain separate open work.
+
+### Media-picker recovery acceptance (K24 slice)
+
+- Use an isolated/synthetic desktop bridge. Reject `pickMedia`: show `MEDIA_PICK_FAILED`, unlock Import media, send no import and allow explicit retry. Cancel with an empty selection: send no import and clear the previous picker error.
+- Defer picker completion: repeated clicks invoke one picker, choosing status is visible and copy/reference choice is disabled. Successful selection submits exactly once using the mode captured when picking began; import status explicitly distinguishes sent engine work from unsent selection.
+- Owner permits Projects navigation while choosing. Initiate close but keep close response pending, then resolve/reject the old picker: no import is sent, even though Editor remains mounted behind close recovery. Repeat with unmount/project change; an old result must not clear a newer picker state.
+- Defer a sent import, then leave: ignore its stale UI response without claiming its engine work was cancelled. Existing engine lifecycle tests govern project-change/cleanup behavior; no new import deadline or unknown-outcome reconciliation is claimed.
+- In browser-only path input, suppress repeated form submissions, lock input/mode during import, show batch/per-file codes, retain the path on failures and clear it only after full success. Native OS-dialog acceptance is distinct from synthetic bridge/browser and component tests.
+
+### Preview boundary acceptance (K32)
+
+- Use owned/synthetic footage with distinct frame colours before/inside/after the removed range. Decode or sample the actual displayed video frames, not only `currentTime` or helper outputs.
+- Trim to a range whose exclusive out-frame has a different colour: paused end and natural playback end must hold the inclusive final frame, including when the original/proxy continues past the trim.
+- Join two same-source clips around a short removed range (under 0.25 s): playback must force a cut seek, not use ordinary drift tolerance. Check both forward skips and repeated/backward source ranges.
+- Contiguous splits must not force a midpoint seek/pause. Gaps must show No clip here and re-entry must seek to the following clip. Shorter proxies must remain clamped.
+- Rational/mixed native/project FPS, mapping edits and trailing audio-track gaps have component coverage. Repeat real-media acceptance on representative codecs/hardware before stronger playback claims; this is still an approximate HTML-video preview.
+
 #### Import/export lifecycle errors
 
 These engine/API codes complement the launcher catalog. The editor currently displays import failure messages and export failure messages/codes, but does not expose every API code consistently.
+
+#### Common unexpected-engine diagnostics (K26 slice)
+
+- `ENGINE_UNEXPECTED_ERROR` (500): an unexpected route failure, with a server-generated `diagnosticId`. Reconcile mutation status before retrying; no rollback is implied. `PROJECT_OPERATION_FAILED` and successful `PROJECT_PREPARATION_FAILED` warnings also carry diagnostic correlation.
+- Search the local stderr capture for the displayed UUID. Windows quick-start captures inherited engine stderr in the session desktop error log; manual starts require terminal access or explicit operator redirection. No new persistent file sink or telemetry is installed.
+- The new JSON record includes time, code, registered route/method and up to three allowlisted error-class/I/O causes (e.g. ENOSPC). It intentionally omits raw exception text/stacks, paths, request/query/parameter/body/header data and caller request IDs. Unknown causes may have only an Error category or no causes; this is not a complete root-cause trace.
+- Tests inject private strings in all excluded surfaces and verify absence from the new record/response, matching IDs, valid UUIDs, cyclic/deep causes, malformed JSON 4xx and retained UI correlation. Existing logs and expected-domain error messages are not universally redacted by this slice; inspect/redact them before sharing (R5).
 
 | Code | Meaning | Workaround / next action |
 |---|---|---|

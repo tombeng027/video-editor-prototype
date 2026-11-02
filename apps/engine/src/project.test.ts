@@ -19,6 +19,7 @@ import {
 import type { Probes } from "./probes.js";
 import { RecentProjects } from "./recent.js";
 import { ProxyManager } from "./proxy.js";
+import { ProjectSession } from "./session.js";
 
 let tmp: string;
 beforeEach(async () => {
@@ -191,16 +192,136 @@ describe("project routes", () => {
     const reset = vi.spyOn(ProxyManager.prototype, "reset").mockImplementationOnce(() => {
       throw new Error("Injected close cleanup failure");
     });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const failed = await a.inject(request);
       expect(failed.statusCode).toBe(500);
-      expect(failed.json().message).toContain("Injected close cleanup failure");
+      expect(failed.json().error.code).toBe("ENGINE_UNEXPECTED_ERROR");
+      expect(failed.json().error.diagnosticId).toEqual(expect.any(String));
+      expect(JSON.parse(log.mock.calls[0]![0]).diagnosticId).toBe(failed.json().error.diagnosticId);
+      expect(failed.body).not.toContain("Injected close cleanup failure");
       expect((await a.inject({ url: "/project", headers })).statusCode).toBe(404);
       expect((await a.inject(request)).json()).toEqual({ ok: true });
       expect((await readProject(folder)).project.id).toBe(opened.project.id);
     } finally {
       reset.mockRestore();
+      log.mockRestore();
     }
+  });
+
+  it("reports committed create/open preparation failures as warnings and retains matching recovery results", async () => {
+    const a = await make(), folder = path.join(tmp, "preparation-warning");
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const reset = vi.spyOn(ProxyManager.prototype, "reset").mockImplementationOnce(() => { throw new Error("Injected preparation failure"); });
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    try {
+      const created = await a.inject({ method: "POST", url: "/project/create", headers, payload: { ...createBody(folder), attemptId } });
+      expect(created.statusCode).toBe(200);
+      expect(created.json().warnings).toContainEqual(expect.objectContaining({ code: "PROJECT_PREPARATION_FAILED" }));
+      expect((await readProject(folder)).project.id).toBe(created.json().project.id);
+      const status = await a.inject({ url: `/project/operations/${attemptId}`, headers });
+      expect(status.json()).toMatchObject({ state: "done", attemptId, response: created.json() });
+      const duplicate = await a.inject({ method: "POST", url: "/project/create", headers, payload: { ...createBody(folder), attemptId } });
+      expect(duplicate.json().error.code).toBe("ATTEMPT_EXISTS");
+      const openId = "00000000-0000-4000-8000-000000000002";
+      reset.mockImplementationOnce(() => { throw new Error("Injected open preparation failure"); });
+      const opened = await a.inject({ method: "POST", url: "/project/open", headers, payload: { folder, attemptId: openId } });
+      expect(opened.statusCode).toBe(200);
+      expect(opened.json().warnings[0].code).toBe("PROJECT_PREPARATION_FAILED");
+      expect((await a.inject({ url: `/project/operations/${openId}`, headers })).json().response).toEqual(opened.json());
+      expect((await a.inject({ url: `/project/operations/${attemptId}`, headers })).json().error.code).toBe("PROJECT_CHANGED");
+      expect(log).toHaveBeenCalledTimes(2);
+      for (let i = 0; i < 2; i++) {
+        const record = JSON.parse(log.mock.calls[i]![0]);
+        const warning = i === 0 ? created.json().warnings[0] : opened.json().warnings[0];
+        expect(record.code).toBe("PROJECT_PREPARATION_FAILED");
+        expect(warning.message).toContain(record.diagnosticId);
+        expect(JSON.stringify(record)).not.toContain("Injected");
+      }
+    } finally { reset.mockRestore(); log.mockRestore(); }
+  });
+
+  it("retains an unexpected project-operation diagnostic in both failure response and recovery status", async () => {
+    const a = await make(), folder = path.join(tmp, "diagnostic-failure");
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failure = vi.spyOn(ProjectSession.prototype, "create").mockRejectedValueOnce(
+      new Error("private unexpected cause", { cause: Object.assign(new Error("private path"), { code: "ENOSPC" }) }),
+    );
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    try {
+      const result = await a.inject({ method: "POST", url: "/project/create", headers, payload: { ...createBody(folder), attemptId } });
+      expect(result.statusCode).toBe(500);
+      expect(result.json().error.code).toBe("PROJECT_OPERATION_FAILED");
+      const record = JSON.parse(log.mock.calls[0]![0]);
+      expect(record.diagnosticId).toBe(result.json().error.diagnosticId);
+      expect(record.causes[1].ioCode).toBe("ENOSPC");
+      expect(result.body + JSON.stringify(record)).not.toContain("private");
+      const status = (await a.inject({ url: `/project/operations/${attemptId}`, headers })).json();
+      expect(status).toMatchObject({ state: "failed", attemptId, error: result.json().error });
+      expect((await a.inject({ url: "/project", headers })).statusCode).toBe(404);
+      await expect(stat(path.join(folder, PROJECT_FILE))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally { failure.mockRestore(); log.mockRestore(); }
+  });
+
+  it("records pending before hooks settle, rejects overlapping opens and invalidates status after close", async () => {
+    const a = await make(), folder = path.join(tmp, "pending");
+    let release!: () => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const idle = vi.spyOn(ProxyManager.prototype, "idle").mockImplementationOnce(() => {
+      entered();
+      return new Promise<void>((resolve) => { release = resolve; });
+    });
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    const started = a.inject({ method: "POST", url: "/project/create", headers, payload: { ...createBody(folder), attemptId } }).then((r) => r);
+    try {
+      await waiting;
+      expect((await a.inject({ url: `/project/operations/${attemptId}`, headers })).json()).toEqual({ state: "pending", attemptId });
+      const busy = await a.inject({ method: "POST", url: "/project/open", headers, payload: { folder } });
+      expect(busy.json().error.code).toBe("PROJECT_OPERATION_BUSY");
+      release();
+      expect((await started).statusCode).toBe(200);
+      await a.inject({ method: "POST", url: "/project/close", headers });
+      expect((await a.inject({ url: `/project/operations/${attemptId}`, headers })).json().error.code).toBe("PROJECT_CHANGED");
+    } finally { release(); await started; idle.mockRestore(); }
+  });
+
+  it("validates, authenticates and records definitive project failures without changing the active project", async () => {
+    const a = await make(), folder = path.join(tmp, "missing");
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    expect((await a.inject({ url: `/project/operations/${attemptId}` })).statusCode).toBe(401);
+    expect((await a.inject({ url: "/project/operations/invalid", headers })).statusCode).toBe(400);
+    expect((await a.inject({ url: `/project/operations/${attemptId}`, headers })).json().error.code).toBe("OPERATION_UNKNOWN");
+    const failed = await a.inject({ method: "POST", url: "/project/open", headers, payload: { folder, attemptId } });
+    expect(failed.statusCode).toBe(404);
+    expect((await a.inject({ url: `/project/operations/${attemptId}`, headers })).json()).toMatchObject({ state: "failed", attemptId, error: { code: "NOT_FOUND" } });
+    expect((await a.inject({ url: "/project", headers })).statusCode).toBe(404);
+    expect((await a.inject({ method: "POST", url: "/project/create", headers, payload: { ...createBody(folder), attemptId: "bad" } })).statusCode).toBe(400);
+  });
+
+  it("returns current committed edits for a completed attempt rather than its stale opening snapshot", async () => {
+    const a = await make(), folder = path.join(tmp, "operation-edits");
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    await a.inject({ method: "POST", url: "/project/create", headers, payload: { ...createBody(folder), attemptId } });
+    await a.inject({ method: "POST", url: "/project/commands", headers,
+      payload: { commands: [{ type: "AddTrack", track: { id: "new-track", kind: "video", order: 0, muted: false, locked: false, clips: [] } }] } });
+    const status = (await a.inject({ url: `/project/operations/${attemptId}`, headers })).json();
+    expect(status.state).toBe("done");
+    expect(status.response.project.tracks[0].id).toBe("new-track");
+    expect(status.response.project).toEqual((await readProject(folder)).project);
+  });
+
+  it("bounds operation records and reports eviction explicitly instead of guessing a retry outcome", async () => {
+    const a = await make(), folder = path.join(tmp, "not-created");
+    const ids: string[] = [];
+    for (let i = 0; i < 17; i++) {
+      const attemptId = crypto.randomUUID();
+      ids.push(attemptId);
+      await a.inject({ method: "POST", url: "/project/open", headers, payload: { folder, attemptId } });
+    }
+    expect((await a.inject({ url: `/project/operations/${ids[0]}`, headers })).json().error.code).toBe("OPERATION_UNKNOWN");
+    expect((await a.inject({ url: `/project/operations/${ids[1]}`, headers })).json()).toMatchObject({ state: "failed" });
+    expect((await a.inject({ url: `/project/operations/${ids[16]}`, headers })).json()).toMatchObject({ state: "failed" });
   });
 
   it("creates, applies commands with autosave, and reopens the saved state", async () => {

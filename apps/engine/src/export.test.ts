@@ -165,6 +165,44 @@ describe("export routes (fake FFmpeg)", () => {
     expect(res.json().error.code).toBe("EMPTY_TIMELINE");
   });
 
+  it("validates attempt IDs and retains correlation through progress and cancellation", async () => {
+    await setup();
+    const invalid = await app.inject({ method: "POST", url: "/project/export", headers, payload: { attemptId: "invalid" } });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error.code).toBe("INVALID_REQUEST");
+    expect(await state()).toEqual({ state: "idle", percent: 0 });
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    runner = (input) => {
+      input.onProgress(0.5);
+      return new Promise((_, reject) => input.signal.addEventListener("abort", () => reject(new Error("aborted"))));
+    };
+    const res = await app.inject({ method: "POST", url: "/project/export", headers, payload: { attemptId } });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({ state: "running", attemptId });
+    expect(await state()).toMatchObject({ state: "running", percent: 50, attemptId });
+    const busy = await app.inject({ method: "POST", url: "/project/export", headers,
+      payload: { attemptId: "00000000-0000-4000-8000-000000000002" } });
+    expect(busy.statusCode).toBe(409);
+    expect((await state()).attemptId).toBe(attemptId);
+    await app.inject({ method: "POST", url: "/project/export/cancel", headers });
+    expect(await settle()).toMatchObject({ state: "cancelled", attemptId });
+  });
+
+  it("retains attempt correlation through successful completion and validation failure", async () => {
+    await setup();
+    const attemptId = "00000000-0000-4000-8000-000000000001";
+    await app.inject({ method: "POST", url: "/project/export", headers, payload: { attemptId } });
+    expect(await settle()).toMatchObject({ state: "done", attemptId });
+    const failedId = "00000000-0000-4000-8000-000000000002";
+    await commands([{ type: "AddAsset", asset: asset("missing", path.join(tmp, "gone.mp4")) },
+      clipCmd("missing-clip", "missing", 90, 0, 30)]);
+    const rejected = await app.inject({ method: "POST", url: "/project/export", headers, payload: { attemptId: failedId } });
+    expect(rejected.statusCode).toBe(422);
+    expect(await settle()).toMatchObject({ state: "failed", attemptId: failedId });
+    await app.inject({ method: "POST", url: "/project/close", headers });
+    expect(await state()).toEqual({ state: "idle", percent: 0 });
+  });
+
   it("refuses to export media that went missing and names the file", async () => {
     await setup(path.join(tmp, "gone.mp4"));
     const res = await start();
