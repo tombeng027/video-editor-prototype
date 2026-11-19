@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { ProjectResponse } from "@ve/schema";
 import { getBridge } from "../desktop.js";
 import type { EngineConfig } from "../engine.js";
@@ -30,25 +30,34 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
   });
   const [error, setError] = useState<string | null>(null);
   const [locationWarning, setLocationWarning] = useState<string | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
   const operation = useProjectOperation(config, onCreated);
   const busy = operation.busy;
   const [picking, setPicking] = useState(false);
   const pending = useRef(false);
   const locationEdited = useRef(false);
+  const locationRequest = useRef(0);
   const pickFolder = getBridge()?.pickFolder;
 
   // Start in the app's sample-projects folder unless the user already typed a location.
-  useEffect(() => {
-    let active = true;
-    void getDefaultFolder(config).then((result) => {
-      if (!active) return;
-      if (result.ok) {
-        if (!pending.current && !operation.locked.current && !locationEdited.current) setForm((f) => (f.folder ? f : { ...f, folder: result.data.folder }));
-      }
-      else setLocationWarning(`[${result.code}] Could not load the default location: ${result.message} Choose a location manually.`);
-    });
-    return () => { active = false; };
+  const loadDefaultFolder = useCallback(async () => {
+    const request = ++locationRequest.current;
+    setLoadingLocation(true);
+    const result = await getDefaultFolder(config);
+    if (request !== locationRequest.current) return;
+    setLoadingLocation(false);
+    if (result.ok) {
+      setLocationWarning(null);
+      if (!pending.current && !operation.locked.current && !locationEdited.current) setForm((f) => (f.folder ? f : { ...f, folder: result.data.folder }));
+    } else {
+      setLocationWarning(`[${result.code}] Could not load the default location: ${result.message} Choose a location manually or retry.`);
+    }
   }, [config, operation.locked]);
+
+  useEffect(() => {
+    void loadDefaultFolder();
+    return () => { locationRequest.current++; };
+  }, [loadDefaultFolder]);
 
   const update = <K extends keyof NewProjectForm>(key: K, value: NewProjectForm[K]) => {
     if (pending.current || operation.locked.current) return;
@@ -117,7 +126,14 @@ export function NewProjectDialog({ config, onCancel, onCreated }: Props) {
               {pickFolder && <button type="button" onClick={() => void browse()}>Browse…</button>}
             </span>
           </label>
-          {!form.folder.trim() && locationWarning && <p role="status" className="error">{locationWarning}</p>}
+          {!form.folder.trim() && locationWarning && (
+            <div role="status" className="error">
+              {locationWarning}{" "}
+              <button type="button" disabled={loadingLocation} onClick={() => void loadDefaultFolder()}>
+                {loadingLocation ? "Retrying default location..." : "Retry default location"}
+              </button>
+            </div>
+          )}
           <label>
             Resolution
             <select value={form.resolutionIndex} onChange={(e) => update("resolutionIndex", Number(e.target.value))}>

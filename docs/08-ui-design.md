@@ -2,7 +2,7 @@
 
 [Back to index](./README.md)
 
-**Status:** target UX, not a current feature inventory. Current UI has landing/create/open, resizable panes, one-track add/split/delete/scrub/zoom, video preview and export. Native modal input isolation and creation/start pending guards are implemented and verified locally; complete editor accessibility is not certified. Settings, drag/drop, search, frame-step, move/trim gestures, Undo/Redo, mute/lock controls, overlays and AI/caption workflows are planned. Responsive collapse remains planned; see [Review status](./16-review-plan-and-system-status.md).
+**Status:** target UX, not a current feature inventory. Current UI has landing/create/open, resizable panes, multi-track visual/audio timeline with move/trim/split/delete, split audio, track mute/lock/rename/reorder, Undo/Redo, Icon transport buttons (Lucide icons via `lucide-react`; Previous/Next frame, Play/Pause, Split, Delete keep their accessible names and tooltips) and Left/Right arrow frame stepping, layered preview with canvas editing (select, move, proportional resize, snapping guides, right-click layer order), Properties (appearance, speed, animations, two-point zoom) and export. Native modal input isolation and creation/start pending guards are implemented and verified locally; complete editor accessibility is not certified. Settings, path drag/drop from the OS, search and AI/caption-generation workflows are planned. Responsive collapse remains planned; see [Review status](./16-review-plan-and-system-status.md).
 
 ## Screens
 
@@ -59,7 +59,7 @@ A planned **Settings** dialog (reachable from both screens) will hold the app-le
 - Snapping to playhead and clip edges, toggle-able.
 - Selection states, and keyboard shortcuts: Space (play), S (split), Delete, arrow keys (frame step), Ctrl+Z / Ctrl+Y.
 - Missing-media states shown on clips.
-- Overlay clips get position, scale and opacity controls in the preview; "Split audio" is available on video clips.
+- Overlay clips get position, scale and opacity controls in the preview; "Split audio" is a timeline toolbar button, enabled for a selected video clip with sound.
 
 ### AI assistant
 - Streaming chat. Message types: text, action card, candidate result card, error.
@@ -68,8 +68,13 @@ A planned **Settings** dialog (reachable from both screens) will hold the app-le
 - A toggle for conversational-only mode.
 - AI-applied edits are labelled in history and can be undone.
 
-### Future: caption panel
-Captions are not part of the main timeline. A separate collapsible panel under it is planned, so the main timeline stays focused on video edits. See [Captions Concept](./15-captions-concept.md).
+### Caption panel
+Captions are separate from media tracks in a collapsed-by-default panel below
+the media timeline. The expanded lane shares its zoom, scroll and playhead, with
+a chronological text list and selected-cue form. Add/edit/delete, move/edge-retime,
+split and merge use confirmed commands and Undo/Redo. Selecting captions does not
+change the selected media clip. Saved cues appear in Preview with fixed styling;
+SRT/burn-in and generation remain planned. See [Captions](./15-captions-concept.md).
 
 ## Status and diagnostics
 

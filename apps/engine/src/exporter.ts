@@ -1,22 +1,28 @@
 import { link, rm, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { ExportState, OfflineAsset, Project } from "@ve/schema";
-import { buildRenderPlan, framesToSeconds, planAssetIds } from "@ve/timeline-core";
+import { ExportSettingsSchema, resolveExportSettings, type ExportSettings, type ResolvedExportSettings,
+  type ExportState, type OfflineAsset, type Project } from "@ve/schema";
+import { assetDurationInProjectFrames, buildRenderPlan, framesToSeconds, planAssetIds } from "@ve/timeline-core";
 import type { EngineConfig } from "./config.js";
 import { buildExportArgs, ExportPlanError, type ExportAsset } from "./exportArgs.js";
 import { runFfmpeg, type FfmpegRun } from "./ffmpegRun.js";
 import { resolveAssetPath } from "./importer.js";
-import { probeFile } from "./media.js";
+import { probeFile, type MediaInfo } from "./media.js";
 import { SessionError, type ProjectSession } from "./session.js";
+import { reportDiagnostic } from "./diagnostics.js";
 
 export type ExportRunner = (input: FfmpegRun) => Promise<void>;
-/** Returns the real duration in seconds of a finished file. */
-export type DurationProbe = (file: string) => Promise<number>;
+export type ExportFileRemover = typeof rm;
+/** Facts read from the finished output, before publication. */
+export type DurationProbe = (file: string) => Promise<Pick<MediaInfo, "durationSeconds" | "width" | "height" | "fps" | "videoCodec" | "audioCodec">>;
+
+class ExportDurationError extends Error {}
+class ExportSettingsMismatchError extends Error {}
 
 export class ExportError extends Error {
   constructor(
-    readonly code: "EMPTY_TIMELINE" | "OFFLINE_MEDIA" | "EXPORT_BUSY" | "TOO_MANY_CUTS" | "MISSING_ASSET" | "EXPORT_CANCELLED",
+    readonly code: "EMPTY_TIMELINE" | "OFFLINE_MEDIA" | "EXPORT_BUSY" | "TOO_MANY_CUTS" | "MISSING_ASSET" | "EXPORT_CANCELLED" | "INVALID_EXPORT_SETTINGS",
     message: string,
   ) {
     super(message);
@@ -58,8 +64,9 @@ export class Exporter {
     private readonly session: ProjectSession,
     private readonly config: EngineConfig,
     private readonly runner: ExportRunner = runFfmpeg,
-    private readonly probeDuration: DurationProbe = async (file) => (await probeFile(config.ffprobePath, file)).durationSeconds,
+    private readonly probeDuration: DurationProbe = (file) => probeFile(config.ffprobePath, file),
     private readonly now: () => Date = () => new Date(),
+    private readonly removeFile: ExportFileRemover = rm,
   ) {}
 
   get state(): ExportState {
@@ -67,7 +74,8 @@ export class Exporter {
   }
 
   private report(state: ExportState, attemptId?: string) {
-    this.current = attemptId ? { ...state, attemptId } : state;
+    this.current = { ...state, ...(this.current.settings ? { settings: this.current.settings } : {}),
+      ...(attemptId ? { attemptId } : {}) };
   }
 
   /** Resolves when the running export (if any) has settled. */
@@ -76,10 +84,13 @@ export class Exporter {
   }
 
   /** Validates, then starts in the background; throws `ExportError` when export cannot begin. */
-  start(attemptId?: string): Promise<ExportState> {
+  start(attemptId?: string, requestedSettings?: ExportSettings): Promise<ExportState> {
     const open = this.session.open;
     if (!open) return Promise.reject(new SessionError("NO_PROJECT", "No project is open."));
     if (this.active) return Promise.reject(new ExportError("EXPORT_BUSY", "An export is already running or settling."));
+    const parsed = ExportSettingsSchema.safeParse(requestedSettings === undefined ? {} : requestedSettings);
+    if (!parsed.success) return Promise.reject(new ExportError("INVALID_EXPORT_SETTINGS", "Choose supported export frame rate, resolution and quality settings."));
+    const settings = resolveExportSettings(open.project.settings, parsed.data);
 
     const plan = buildRenderPlan(open.project);
     if (plan.segments.length === 0) return Promise.reject(new ExportError("EMPTY_TIMELINE", "The timeline is empty. Add a clip before exporting."));
@@ -90,7 +101,7 @@ export class Exporter {
     const epoch = this.epoch;
     const version = this.session.version;
     this.active = controller;
-    this.report({ state: "running", percent: 0 }, attemptId);
+    this.current = { state: "running", percent: 0, settings, ...(attemptId ? { attemptId } : {}) };
     const assertCurrent = () => {
       if (controller.signal.aborted || epoch !== this.epoch) {
         throw new ExportError("EXPORT_CANCELLED", "Export was cancelled before completion.");
@@ -107,21 +118,38 @@ export class Exporter {
             throw new ExportError("OFFLINE_MEDIA", `These source files are missing: ${offline.map((a) => `${a.name} (${a.path})`).join("; ")}. Restore them and try again.`);
           }
           const assets = new Map<string, ExportAsset>(
-            open.project.assets.map((a) => [a.id, { path: resolveAssetPath(open.folder, a), hasAudio: a.hasAudio }]),
+            open.project.assets.map((a) => [
+              a.id,
+              {
+                path: resolveAssetPath(open.folder, a),
+                hasAudio: a.hasAudio,
+                kind: a.kind === "image" ? "image" : "video",
+                durationFrames: assetDurationInProjectFrames(a, open.project.settings.fps),
+              },
+            ]),
           );
-          const args = buildExportArgs(plan, assets, part);
+          const args = buildExportArgs(plan, assets, part, settings);
           resolve(this.current);
           await this.execute({
-            args, part, outFile, controller, epoch, assertCurrent, attemptId,
+            args, part, outFile, controller, epoch, assertCurrent, attemptId, settings,
             expectedSeconds: framesToSeconds(plan.totalFrames, plan.fps),
-            frameSeconds: framesToSeconds(1, plan.fps),
+            frameSeconds: settings.fps.den / settings.fps.num,
           });
         } catch (error) {
           const failure = error instanceof ExportPlanError ? new ExportError(error.code, error.message) : error;
           if (epoch === this.epoch) {
+            const diagnosticId = controller.signal.aborted || failure instanceof ExportError || failure instanceof SessionError
+              ? undefined
+              : reportDiagnostic("BACKGROUND_JOB_FAILED", failure, { method: "POST", route: "/project/export" });
             this.report(controller.signal.aborted
               ? { state: "cancelled", percent: 0 }
-              : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: failure instanceof Error ? failure.message : "Export failed." }, attemptId);
+              : {
+                state: "failed",
+                percent: 0,
+                code: "EXPORT_FAILED",
+                message: failure instanceof Error ? failure.message : "Export failed.",
+                ...(diagnosticId ? { diagnosticId } : {}),
+              }, attemptId);
           }
           reject(failure);
         } finally {
@@ -137,6 +165,7 @@ export class Exporter {
   }
 
   private async execute(job: {
+    settings: ResolvedExportSettings;
     attemptId?: string;
     args: string[];
     part: string;
@@ -167,10 +196,15 @@ export class Exporter {
       job.assertCurrent();
       const actual = await this.probeDuration(job.part);
       job.assertCurrent();
-      if (!durationMatches(actual, job.expectedSeconds, job.frameSeconds)) {
-        throw new Error(
-          `The exported file is ${actual.toFixed(2)}s long but the timeline is ${job.expectedSeconds.toFixed(2)}s. The file was discarded.`,
+      if (!durationMatches(actual.durationSeconds, job.expectedSeconds, job.frameSeconds)) {
+        throw new ExportDurationError(
+          `The exported file is ${actual.durationSeconds.toFixed(2)}s long but the timeline is ${job.expectedSeconds.toFixed(2)}s. The file was discarded.`,
         );
+      }
+      if (actual.width !== job.settings.width || actual.height !== job.settings.height ||
+        actual.videoCodec !== "h264" || actual.audioCodec !== "aac" || !actual.fps ||
+        actual.fps.num * job.settings.fps.den !== job.settings.fps.num * actual.fps.den) {
+        throw new ExportSettingsMismatchError("The rendered codec, dimensions or frame rate did not match the requested export settings. The file was discarded.");
       }
       // Linking publishes without replacing an existing output; both paths are on the same volume.
       await link(job.part, job.outFile);
@@ -180,18 +214,35 @@ export class Exporter {
       job.assertCurrent();
       this.report({ state: "done", percent: 100, outputPath: job.outFile }, job.attemptId);
     } catch (e) {
-      const cleanupErrors: string[] = [];
+      const cleanupErrors: unknown[] = [];
       for (const file of published ? [job.part, job.outFile] : [job.part]) {
-        try { await rm(file, { force: true }); }
-        catch (error) { cleanupErrors.push(`${file}: ${error instanceof Error ? error.message : String(error)}`); }
+        try { await this.removeFile(file, { force: true }); }
+        catch (error) { cleanupErrors.push(error); }
       }
       if (cleanupErrors.length) {
-        const message = `Export did not complete. Cleanup failed: ${cleanupErrors.join("; ")}`;
-        if (epoch === this.epoch) this.report({ state: "failed", percent: 0, code: "EXPORT_CLEANUP_FAILED", message }, job.attemptId);
-        else console.error(`EXPORT_CLEANUP_FAILED: ${message}`);
-      } else if (epoch === this.epoch) this.report(job.controller.signal.aborted
-        ? { state: "cancelled", percent: 0 }
-        : { state: "failed", percent: 0, code: "EXPORT_FAILED", message: e instanceof Error ? e.message : "Export failed." }, job.attemptId);
+        const diagnosticId = reportDiagnostic("BACKGROUND_JOB_FAILED", cleanupErrors[0], { route: "export cleanup" });
+        if (epoch === this.epoch) this.report({
+          state: "failed",
+          percent: 0,
+          code: "EXPORT_CLEANUP_FAILED",
+          message: "Export cleanup failed. Check engine diagnostics using the diagnostic ID.",
+          diagnosticId,
+        }, job.attemptId);
+      } else if (epoch === this.epoch) {
+        const diagnosticId = job.controller.signal.aborted || e instanceof ExportError || e instanceof SessionError
+          ? undefined
+          : reportDiagnostic("BACKGROUND_JOB_FAILED", e, { method: "POST", route: "/project/export" });
+        this.report(job.controller.signal.aborted
+          ? { state: "cancelled", percent: 0 }
+          : {
+            state: "failed",
+            percent: 0,
+            code: e instanceof ExportDurationError ? "EXPORT_DURATION_MISMATCH"
+              : e instanceof ExportSettingsMismatchError ? "EXPORT_SETTINGS_MISMATCH" : "EXPORT_FAILED",
+            message: e instanceof Error ? e.message : "Export failed.",
+            ...(diagnosticId ? { diagnosticId } : {}),
+          }, job.attemptId);
+      }
     }
   }
 

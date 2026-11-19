@@ -1,11 +1,13 @@
 import type { Project } from "@ve/schema";
 import { buildRenderPlan, planAssetIds } from "@ve/timeline-core";
 
-export type SaveStatus = "saved" | "saving" | "error";
+export type SaveStatus = "saved" | "saving" | "error" | "unknown" | "recovered";
 
 export function saveLabel(status: SaveStatus): string {
   if (status === "saving") return "Saving…";
   if (status === "error") return "Save failed";
+  if (status === "unknown") return "Save unconfirmed";
+  if (status === "recovered") return "Backup loaded";
   return "Autosaved";
 }
 

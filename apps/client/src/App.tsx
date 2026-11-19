@@ -72,6 +72,7 @@ export function App() {
         health={health}
         importEnabled={closing === null}
         warnings={opened.warnings}
+        recoveredFromBackup={opened.recoveredFromBackup}
         onClose={() => { if (closing === null) void close(); }}
       />
       {closing !== null && (

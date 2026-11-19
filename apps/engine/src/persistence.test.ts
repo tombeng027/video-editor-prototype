@@ -33,7 +33,7 @@ const invalidCases: { name: string; change: (project: Project) => void; code: st
   { name: "duplicate track order", change: (p) => { p.tracks.push({ ...p.tracks[0]!, id: "t2", clips: [] }); }, code: "DUPLICATE_ORDER" },
   { name: "overlap", change: (p) => { p.tracks[0]!.clips.push({ ...p.tracks[0]!.clips[0]!, id: "c2", timelineStart: 20 }); }, code: "OVERLAP" },
   { name: "wrong track kind", change: (p) => { p.assets[0]!.kind = "audio"; }, code: "TRACK_KIND_MISMATCH" },
-  { name: "invalid transform", change: (p) => { p.tracks[0]!.clips[0]!.transform = { x: 0, y: 0, scale: 1, opacity: 1 }; }, code: "INVALID_TRANSFORM" },
+  { name: "invalid transform", change: (p) => { p.tracks[0]!.kind = "audio"; p.tracks[0]!.clips[0]!.transform = { x: 0.5, y: 0.5, scale: 1, opacity: 1 }; }, code: "INVALID_TRANSFORM" },
   { name: "dangling link", change: (p) => { p.tracks[0]!.clips[0]!.linkedClipId = "missing"; }, code: "NOT_FOUND" },
   { name: "self link", change: (p) => { p.tracks[0]!.clips[0]!.linkedClipId = "c"; }, code: "NOT_FOUND" },
 ];

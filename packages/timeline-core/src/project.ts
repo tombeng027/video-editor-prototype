@@ -22,6 +22,7 @@ export function createEmptyProject(opts: {
     },
     assets: [],
     tracks: [],
+    captionCues: [],
     createdAt: now,
     updatedAt: now,
   };

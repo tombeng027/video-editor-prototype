@@ -1,8 +1,11 @@
-# 15. Captions Concept (future feature)
+# 15. Captions
 
 [Back to index](./README.md)
 
-Status: **idea captured, not scheduled.** We build this once the prototype (M2 to M6) is stable and we are satisfied with it. Nothing in the current code depends on it, but the points under "What to keep in mind now" avoid painting ourselves into a corner.
+Status: **foundation, manual workspace and Preview implemented locally; desktop
+acceptance pending.** One plain-text, timeline-fixed cue lane, saved-project
+migration and undoable commands are available. SRT/burned-in output, styling
+controls and speech generation remain planned.
 
 ## Idea
 
@@ -14,13 +17,20 @@ Planned speech transcription would create timed caption cues. Captions would hav
 
 - A **caption panel** docked directly under the main timeline, **collapsed by default**.
   - Collapsed: a thin strip showing the cue count, a density marker for where captions exist, and an Expand button. Nothing else competes with the main timeline.
-  - Expanded: the panel grows (the main timeline shrinks, and the layout splitter still works).
+  - Expanded: the timeline area grows to at least 440px to make room, then the
+    panel and media rows share that space; the layout splitter still works.
 - **Shared time axis.** The caption lane uses the same playhead, zoom and horizontal scroll as the main timeline, so a cue always lines up with the video above it. Without this the separation would be disorienting.
 - Two views inside the panel:
   - **Timeline view:** cues as blocks on one lane; drag to move, drag the edges to retime, split and merge.
-  - **Text view:** a list of cues with the text editable inline, for fixing wording quickly. Selecting a cue moves the playhead to it. Wording errors are the most common fix, and a list is faster than blocks for that.
-- Preview shows the current cue on top of the video, styled as it will be exported.
-- A style section for the whole track first (font, size, colour, outline, position). Per-cue overrides come later.
+  - **Text view:** a chronological list alongside the selected cue's text/timing
+    editor. Selecting a cue pauses and seeks to it. Add/Apply commits the draft;
+    Cancel draft discards it. Times are exact whole project frames, with
+    timecodes in the list. An unsaved form draft must be applied/cancelled before dragging.
+- Preview shows the saved current cue as bottom-centered white multiline text
+  with a dark shadow, scaled with the project canvas. Markup is literal text.
+  Cues may continue beyond media; editor playback includes their duration.
+- Styling controls for the whole track (font, size, colour, outline, position)
+  are planned, not implemented. Per-cue overrides come later.
 - The caption panel is not part of the main-timeline selection. Editing a cue never changes video clips and the reverse.
 
 ## How it would work
@@ -32,33 +42,45 @@ Planned speech transcription would create timed caption cues. Captions would hav
 - Input is the audio of the clips on the main timeline (or a selected range). The engine extracts audio with FFmpeg, sends it to the service, and groups words into cues (line length, reading speed, break on pauses).
 - Transcripts are cached per asset, like CLIP scores, so re-running after a small edit does not retranscribe everything.
 
-### Data model sketch
+### Current data foundation
 
 Kept out of `project.tracks` so the main timeline code never sees captions.
 
 ```ts
-type CaptionTrack = {
-  id: string;
-  language: string;
-  style: CaptionStyle;
-  cues: Cue[];
-};
-
-type Cue = {
+type CaptionCue = {
   id: string;
   start: number; // timeline frames
   end: number;   // timeline frames, exclusive
   text: string;
 };
 
-// Project gets: captionTracks: CaptionTrack[] (default [])
+// Version-2 projects have captionCues: CaptionCue[] (one lane).
+// Version-1 loading migrates to version 2 with an empty lane.
 ```
 
-This is a schema change, so it needs the version check and migration hook from backlog item K10 first.
+Cue text is nonblank, at most 2000 characters, and stored verbatim (no markup
+interpretation). Timing uses safe integer project frames. The lane cannot overlap
+itself, but adjacent cues are allowed. Manual cues remain fixed in timeline time
+through media edits; source-following generated cues and stale warnings come later.
+Frame-rate changes/first-import FPS adoption are blocked once cues exist.
+Schema v2, explicit v1 migration, unsupported-version guards and exact save/open
+round-trips are implemented; see [Versioning](./03-data-model.md#versioning).
+The cue array extends editor playback duration and draws subtitles in Preview.
+Engine exports still use media-only duration and do not render cues; the expanded
+workspace and Export dialog explicitly warn about this limitation.
 
 ### Commands (all undoable, same command layer)
 
-`AddCaptionTrack`, `RemoveCaptionTrack`, `SetCaptionStyle`, `AddCue`, `EditCueText`, `MoveCue`, `TrimCue`, `SplitCue`, `MergeCues`, `RemoveCue`, and one batch command to insert a generated set. Invariants: cues in a track do not overlap, `start < end`, `start >= 0`.
+Implemented: `AddCaptionCue`, `SetCaptionCue` (atomic text and/or timing changes),
+and `RemoveCaptionCue`, with exact inverses and normal engine autosave. One
+atomic batch can add several cues; a failed batch saves nothing. These commands
+are exposed through the caption workspace. Split batches shorten the
+first cue and add the second, retaining the text on both halves. Merge batches
+remove the next chronological cue before extending the first across any gap,
+joining text with a newline. Each batch is one Undo step. Dragging constrains
+whole-frame bounds to adjacent cues; Escape, lost capture, pointer cancellation,
+project changes or disabled editing discard the gesture. Track styling, source
+anchoring and generated-candidate insertion remain future slices.
 
 ### Export
 
@@ -67,7 +89,9 @@ This is a schema change, so it needs the version check and migration hook from b
 
 ## Open design questions
 
-1. **Do captions follow video edits?** If the user splits, deletes or moves clips after generating captions, cues can drift off the speech.
+1. **Do generated captions follow video edits?** Manual cues are timeline-fixed
+   for the approved foundation. If the user splits, deletes or moves clips after
+   generating captions, cues can drift off the speech.
    - Option A: cues are in timeline time, so they stay where they are and the user fixes them. Simple, but easy to break silently.
    - Option B: cues are anchored to source time (the transcript lives on the asset) and are mapped to the timeline through the clips, so they follow cuts automatically. More work, but matches what users expect.
    - Leaning towards B for generated cues, with the transcript kept per asset. Decide when we design it.
@@ -80,14 +104,22 @@ This is a schema change, so it needs the version check and migration hook from b
 
 - Keep time in integer frames, which the cue model already assumes.
 - Keep the shared playhead clock and zoom independent of one specific timeline component, so a second lane can reuse them (the current `PlayheadClock` and `timelineMath` already are).
-- Add the schema version check and migration hook (K10) before the first schema change.
+- Maintain the schema version check and explicit migration hook (v1 to v2 now implemented).
 - Keep the Python service modular so a speech module can sit next to vision.
 - Plan the layout so a collapsible panel under the timeline fits (the layout is already configuration driven).
 
+## Owner direction (2026-11-10)
+
+Auto-captions are on the plan, after crop. Recommended phasing, awaiting final owner answers:
+
+- **Phase 1, no AI:** the caption track and manual cues (schema, commands, caption panel, preview overlay, burned-in export and `.srt` import/export, basic styling).
+- **Phase 2, auto-generate:** speech to text added as a candidate producer for the same cues. Recommendation: local Whisper (private, offline, no cost) with a model-size choice and progress display; a cloud option could come later as a clearly labelled setting.
+- **Questions still open:** local-only for the first version; model download on first use versus bundled; English only versus multilingual first; plain subtitles first versus word-highlight styling.
+
 ## Suggested build order (when we get there)
 
-1. Schema, migration and cue commands with tests (no UI).
-2. Caption panel: text view and timeline view on the shared axis, manual cues only, with preview overlay.
-3. Speech module and the generate-captions quick action as a candidate.
-4. Export: burned-in and `.srt`.
+1. Schema, migration and cue commands with tests (no UI): implemented locally.
+2. Caption panel: text view and timeline view on the shared axis, manual cues only, with preview overlay: implemented locally; desktop acceptance pending.
+3. Export: burned-in and `.srt`, plus `.srt` import.
+4. Speech module and the generate-captions quick action as a candidate.
 5. Follow-the-edits behaviour and the stale-caption warning.

@@ -6,5 +6,14 @@ trap {
   exit 1
 }
 $mutex = Enter-LauncherLock
-try { Invoke-LogCleanup -DryRun:$DryRun | ConvertTo-Json -Depth 4 }
+try {
+  $previousWarningPreference = $WarningPreference
+  try {
+    $WarningPreference = "SilentlyContinue"
+    $result = Invoke-LogCleanup -DryRun:$DryRun
+  } finally { $WarningPreference = $previousWarningPreference }
+  $result | ConvertTo-Json -Depth 4
+  foreach ($warning in $result.warnings) { [Console]::Error.WriteLine($warning) }
+  if ($result.exitCode -ne 0) { exit $result.exitCode }
+}
 finally { $mutex.ReleaseMutex(); $mutex.Dispose() }

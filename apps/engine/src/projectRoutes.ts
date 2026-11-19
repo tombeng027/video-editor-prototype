@@ -7,6 +7,7 @@ import {
   OpenProjectRequestSchema,
   type ApiError,
   type ProjectOperation,
+  type CommandOperation,
   type ProjectResponse,
 } from "@ve/schema";
 import { randomUUID } from "node:crypto";
@@ -18,21 +19,24 @@ import { reportDiagnostic } from "./diagnostics.js";
 
 const apiError = (code: string, message: string): ApiError => ({ error: { code, message } });
 
-const STORE_STATUS = { ALREADY_EXISTS: 409, NOT_FOUND: 404, CORRUPT: 422, STORE_IO_FAILED: 500, SAVE_FAILED: 500, SAVE_CLEANUP_FAILED: 500 } as const;
+const STORE_STATUS = { ALREADY_EXISTS: 409, NOT_FOUND: 404, CORRUPT: 422, UNSUPPORTED_PROJECT_VERSION: 422, STORE_IO_FAILED: 500, SAVE_FAILED: 500, SAVE_CLEANUP_FAILED: 500 } as const;
 
-function sendFailure(reply: FastifyReply, error: unknown) {
+function sendFailure(reply: FastifyReply, error: unknown, notApplied = false) {
+  const failure = (code: string, message: string): ApiError => ({
+    ...apiError(code, message), ...(notApplied ? { outcome: "not-applied" as const } : {}),
+  });
   if (error instanceof StoreError) {
-    return reply.code(STORE_STATUS[error.code]).send(apiError(error.code, error.message));
+    return reply.code(STORE_STATUS[error.code]).send(failure(error.code, error.message));
   }
   if (error instanceof SessionError) {
     const status = error.code === "INVALID_PATH" ? 400 : 409;
-    return reply.code(status).send(apiError(error.code, error.message));
+    return reply.code(status).send(failure(error.code, error.message));
   }
   if (error instanceof RecentError) return reply.code(500).send(apiError(error.code, error.message));
   throw error;
 }
 
-export type ProjectHooks = { onOpened: () => Promise<void>; onClosed: () => Promise<void> };
+export type ProjectHooks = { onOpened: () => Promise<void>; onClosed: () => Promise<void>; onRelinked?: () => Promise<void> };
 
 export function registerProjectRoutes(
   app: FastifyInstance,
@@ -42,6 +46,7 @@ export function registerProjectRoutes(
   projectsDir: string,
 ) {
   const operations = new Map<string, { status: ProjectOperation; version?: number }>();
+  const commandOperations = new Map<string, { status: CommandOperation; version: number }>();
   let opening = false;
   const begin = (attemptId: string, reply: FastifyReply) => {
     if (opening) {
@@ -148,15 +153,79 @@ export function registerProjectRoutes(
   });
 
   app.post("/project/commands", async (req, reply) => {
+    const reject = (status: number, code: string, message: string) =>
+      reply.code(status).send({ ...apiError(code, message), outcome: "not-applied" } satisfies ApiError);
     const parsed = CommandsRequestSchema.safeParse(req.body);
-    if (!parsed.success) return invalid(reply, "Invalid command list.");
-    try {
-      const outcome = await session.apply(parsed.data.commands);
-      if (!outcome.ok) return reply.code(422).send({ error: outcome.error });
-      return { project: outcome.project, inverse: outcome.inverse };
-    } catch (e) {
-      return sendFailure(reply, e);
+    if (!parsed.success) return reject(400, "INVALID_REQUEST", "Invalid command list.");
+    if (!session.open) return reject(404, "NO_PROJECT", "No project is open.");
+    const attemptId = parsed.data.attemptId ?? randomUUID();
+    if (commandOperations.has(attemptId)) {
+      return reply.code(409).send(apiError("ATTEMPT_EXISTS", "This command attempt was already submitted. Check its status instead of resubmitting."));
     }
+    const pending = [...commandOperations.values()].filter(({ status }) => status.state === "pending").length;
+    if (pending >= 16) {
+      return reject(409, "COMMAND_OPERATION_BUSY", "Too many command operations are still settling. Check their status before submitting more.");
+    }
+    if (commandOperations.size >= 16) {
+      const evictable = [...commandOperations].find(([, operation]) => operation.status.state !== "pending");
+      if (evictable) commandOperations.delete(evictable[0]);
+    }
+    if (commandOperations.size >= 16) {
+      return reject(409, "COMMAND_OPERATION_BUSY", "Command recovery records are full. Check pending operation status before submitting more.");
+    }
+    const version = session.version;
+    const operation = { status: { state: "pending", attemptId } as CommandOperation, version };
+    commandOperations.set(attemptId, operation);
+    try {
+      const outcome = await session.apply(parsed.data.commands, version);
+      if (!outcome.ok) {
+        operation.status = { state: "failed", attemptId, error: outcome.error };
+        return reply.code(422).send({ error: outcome.error, outcome: "not-applied" } satisfies ApiError);
+      }
+      const response = { project: outcome.project, inverse: outcome.inverse };
+      operation.status = { state: "done", attemptId, response };
+      if (parsed.data.commands.some((command) => command.type === "RelinkAsset")) {
+        try { await hooks.onRelinked?.(); }
+        catch (error) {
+          reportDiagnostic("PROJECT_PREPARATION_FAILED", error, { method: "POST", route: "/project/commands" });
+          throw error;
+        }
+      }
+      return response;
+    } catch (e) {
+      if (operation.status.state === "done") throw e;
+      if (e instanceof SessionError || e instanceof StoreError) {
+        operation.status = { state: "failed", attemptId, error: { code: e.code, message: e.message } };
+        return sendFailure(reply, e, true);
+      }
+      const error: ApiError["error"] = {
+        code: "ENGINE_UNEXPECTED_ERROR",
+        message: "Command outcome is unconfirmed. Check operation status before retrying.",
+        diagnosticId: reportDiagnostic("ENGINE_UNEXPECTED_ERROR", e, { method: "POST", route: "/project/commands" }),
+      };
+      operation.status = { state: "unknown", attemptId, error };
+      return reply.code(500).send({ error } satisfies ApiError);
+    }
+  });
+
+  app.get<{ Params: { attemptId: string } }>("/project/command-operations/:attemptId", async (req, reply) => {
+    if (!z.uuid().safeParse(req.params.attemptId).success) return invalid(reply, "Invalid command attempt.");
+    const operation = commandOperations.get(req.params.attemptId);
+    if (!operation) {
+      return reply.code(404).send(apiError("OPERATION_UNKNOWN",
+        "This command attempt is not recorded. It may not have arrived, been evicted, or the engine restarted; refresh project state before retrying."));
+    }
+    try { session.assertVersion(operation.version); }
+    catch (error) {
+      if (error instanceof SessionError) return sendFailure(reply, error);
+      throw error;
+    }
+    if (operation.status.state === "done") {
+      const active = session.open;
+      if (!active) return reply.code(409).send(apiError("NO_PROJECT", "No project is open."));
+      return { ...operation.status, response: { ...operation.status.response, project: active.project } };
+    }
+    return operation.status;
   });
 
   app.post("/project/save", async (_req, reply) => {

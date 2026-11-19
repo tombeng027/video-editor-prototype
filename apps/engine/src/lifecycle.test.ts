@@ -36,6 +36,8 @@ describe("project-owned import and export lifecycle", () => {
   const fps = { num: 30, den: 1 };
   const audio: MediaInfo = { kind: "audio", durationSeconds: 1, durationFrames: 1000, fps: { num: 1000, den: 1 }, width: null, height: null, hasAudio: true };
   const video: MediaInfo = { kind: "video", durationSeconds: 1, durationFrames: 60, fps: { num: 60, den: 1 }, width: 640, height: 360, hasAudio: false };
+  const image: MediaInfo = { kind: "image", durationSeconds: 5, durationFrames: 1, fps: null, width: 640, height: 360, hasAudio: false };
+  const outputInfo = async () => ({ durationSeconds: 1, width: 640, height: 360, fps, videoCodec: "h264", audioCodec: "aac" });
   const gate = () => {
     const value = deferred();
     gates.push(value);
@@ -112,9 +114,24 @@ describe("project-owned import and export lifecycle", () => {
       importer.importFiles({ paths: [file], mode: "copy" }),
     ]);
     expect(session.open!.project.assets).toHaveLength(1);
-    expect(results[1]!.failed).toMatchObject([{ code: "UNSUPPORTED" }]);
+    expect(results[1]!.failed).toMatchObject([{ code: "ALREADY_IMPORTED" }]);
     expect(await readFile(sentinel, "utf8")).toBe("unrelated preexisting file");
     expect(await readdir(path.dirname(sentinel))).toEqual(["source-1.media", "source.media"]);
+  });
+
+  it("imports still images with a five-second project-frame duration and no proxy", async () => {
+    const file = await source("still.png");
+    const importer = new Importer(session, proxies, config, async () => image);
+    const result = await importer.importFiles({ paths: [file], mode: "reference" });
+    expect(result.project.assets[0]).toMatchObject({
+      kind: "image",
+      durationFrames: 150,
+      fps: null,
+      width: 640,
+      height: 360,
+      proxyPath: null,
+    });
+    expect(proxies.list()).toEqual([]);
   });
 
   it("cleans only owned copies when commit fails and accepts a subsequent retry", async () => {
@@ -172,6 +189,19 @@ describe("project-owned import and export lifecycle", () => {
     expect(session.open!.project.settings.fps).toEqual(video.fps);
   });
 
+  it("preserves caption timing instead of adopting the first imported video's fps", async () => {
+    await session.create({ ...settings("caption-fps"), fpsFromFirstImport: true });
+    const cue = { id: "cue", start: 0, end: 30, text: "Fixed timing" };
+    expect(await session.apply([{ type: "AddCaptionCue", cue }])).toMatchObject({ ok: true });
+    const originalFps = session.open!.project.settings.fps;
+    const importer = new Importer(session, proxies, config, async () => video);
+    await importer.importFiles({ paths: [await source("caption-video", "video")], mode: "reference" });
+    await proxies.idle();
+    expect(session.open!.project.settings.fps).toEqual(originalFps);
+    expect(session.open!.project.captionCues).toEqual([cue]);
+    expect(session.open!.project.assets).toHaveLength(1);
+  });
+
   it.each(["mixed", "concurrent", "reopen"] as const)("matches only the first video for %s imports", async (mode) => {
     await session.create({ ...settings("match"), fpsFromFirstImport: true });
     const importer = new Importer(session, proxies, config, async (file) => file.endsWith("audio") ? audio : video);
@@ -217,6 +247,7 @@ describe("project-owned import and export lifecycle", () => {
     });
     const importer = new Importer(session, proxies, config, async () => video);
     await importer.importFiles({ paths: [await source()], mode: "reference" });
+    await importer.prepareProxy(session.open!.project.assets[0]!.id, session.version);
     await proxies.idle();
     expect(session.open!.project.assets[0]!.proxyPath).toBeNull();
     expect(proxies.list()[0]).toMatchObject({ state: "failed", message: expect.stringContaining("project changed") });
@@ -244,7 +275,7 @@ describe("project-owned import and export lifecycle", () => {
     await setupExport();
     const release = gate();
     const runner = vi.fn(async () => { await release.promise; });
-    exporter = new Exporter(session, config, runner, async () => 1);
+    exporter = new Exporter(session, config, runner, outputInfo);
     const first = exporter.start();
     await expect(exporter.start()).rejects.toMatchObject({ code: "EXPORT_BUSY" });
     await first;
@@ -259,7 +290,7 @@ describe("project-owned import and export lifecycle", () => {
   it.each(["cancel", "reset"] as const)("does not start a runner after %s during preflight", async (action) => {
     await setupExport();
     const runner = vi.fn(writeOutput);
-    exporter = new Exporter(session, config, runner, async () => 1);
+    exporter = new Exporter(session, config, runner, outputInfo);
     const start = exporter.start();
     if (action === "reset") exporter.reset();
     else exporter.cancel();
@@ -277,7 +308,7 @@ describe("project-owned import and export lifecycle", () => {
     exporter = new Exporter(session, config, writeOutput, async () => {
       entered.resolve();
       await release.promise;
-      return 1;
+      return outputInfo();
     });
     await exporter.start();
     await entered.promise;
@@ -293,7 +324,7 @@ describe("project-owned import and export lifecycle", () => {
 
   it("generates distinct output paths for repeated exports at the same time", async () => {
     await setupExport();
-    exporter = new Exporter(session, config, writeOutput, async () => 1, () => new Date(2026, 9, 12, 10, 0, 0));
+    exporter = new Exporter(session, config, writeOutput, outputInfo, () => new Date(2026, 9, 12, 10, 0, 0));
     await exporter.start();
     await exporter.settled();
     const first = exporter.state.outputPath!;
@@ -312,7 +343,7 @@ describe("project-owned import and export lifecycle", () => {
       occupied = job.args.at(-1)!.replace(/\.part$/, "");
       await writeFile(occupied, "existing output");
       await writeOutput(job);
-    }, async () => 1);
+    }, outputInfo);
     await exporter.start();
     await exporter.settled();
     expect(exporter.state.state).toBe("failed");
@@ -323,7 +354,7 @@ describe("project-owned import and export lifecycle", () => {
   it("fails explicitly when exclusive output publication is unsupported", async () => {
     await setupExport();
     vi.mocked(link).mockRejectedValueOnce(new Error("Hard links are not supported on this filesystem."));
-    exporter = new Exporter(session, config, writeOutput, async () => 1);
+    exporter = new Exporter(session, config, writeOutput, outputInfo);
     await exporter.start();
     await exporter.settled();
     expect(exporter.state).toMatchObject({ state: "failed", code: "EXPORT_FAILED", message: expect.stringContaining("not supported") });
@@ -332,7 +363,7 @@ describe("project-owned import and export lifecycle", () => {
 
   it("preserves a committed output when cancel is requested afterward", async () => {
     await setupExport();
-    exporter = new Exporter(session, config, writeOutput, async () => 1);
+    exporter = new Exporter(session, config, writeOutput, outputInfo);
     await exporter.start();
     await exporter.settled();
     const output = exporter.state.outputPath!;
@@ -351,7 +382,7 @@ describe("project-owned import and export lifecycle", () => {
       entered.resolve();
       await release.promise;
     });
-    exporter = new Exporter(session, config, writeOutput, async () => 1);
+    exporter = new Exporter(session, config, writeOutput, outputInfo);
     await exporter.start();
     await entered.promise;
     if (action === "reset") exporter.reset();
@@ -368,10 +399,15 @@ describe("project-owned import and export lifecycle", () => {
       await mkdir(job.args.at(-1)!);
       await writeFile(path.join(job.args.at(-1)!, "locked-fixture"), "x");
       throw new Error("Runner failed.");
-    }, async () => 1);
+    }, outputInfo);
     await exporter.start();
     await exporter.settled();
-    expect(exporter.state).toMatchObject({ state: "failed", code: "EXPORT_CLEANUP_FAILED", message: expect.stringContaining("Cleanup failed") });
+    expect(exporter.state).toMatchObject({
+      state: "failed",
+      code: "EXPORT_CLEANUP_FAILED",
+      message: "Export cleanup failed. Check engine diagnostics using the diagnostic ID.",
+      diagnosticId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    });
     expect(await outputs()).toHaveLength(1);
   });
 
@@ -401,7 +437,12 @@ describe("project-owned import and export lifecycle", () => {
     const folder = path.join(tmp, "API");
     expect((await app.inject({ method: "POST", url: "/project/create", headers, payload: { ...settings("API"), folder } })).statusCode).toBe(200);
     if (kind === "proxy") {
-      expect((await app.inject({ method: "POST", url: "/project/import", headers, payload: { paths: [await source()], mode: "reference" } })).statusCode).toBe(200);
+      const imported = await app.inject({ method: "POST", url: "/project/import", headers, payload: { paths: [await source()], mode: "reference" } });
+      expect(imported.statusCode).toBe(200);
+      expect((await app.inject({ method: "POST", url: "/project/preview-jobs", headers, payload: {
+        assetId: imported.json().project.assets[0].id, action: "prepare",
+        expectedProject: { id: imported.json().project.id, folder },
+      } })).statusCode).toBe(200);
     } else {
       await setupExport();
       const project = session.open!.project;
@@ -489,7 +530,7 @@ describe("project-owned import and export lifecycle", () => {
     app = await buildApp(loadConfig({ ENGINE_TOKEN: "test", ENGINE_DATA_DIR: path.join(tmp, "api-data") }));
     const missing = await app.inject({ method: "GET", url: `/project/imports/${randomUUID()}`, headers });
     expect(missing.statusCode).toBe(404);
-    expect(missing.json()).toMatchObject({ error: { code: "IMPORT_OUTCOME_UNKNOWN" } });
+    expect(missing.json()).toMatchObject({ error: { code: "IMPORT_RECEIPT_MISSING" } });
     const malformed = await app.inject({ method: "GET", url: "/project/imports/not-a-uuid", headers });
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json()).toMatchObject({ error: { code: "INVALID_REQUEST" } });

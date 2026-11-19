@@ -36,7 +36,7 @@ This table describes the target through M6, not today's shipped capabilities. M1
 | Area | In scope |
 |------|----------|
 | Projects | Create, save, open, autosave, missing-media relink |
-| Assets | Video/audio import, metadata and proxies are implemented; image import is deferred; temporary AI candidates are planned for M6 |
+| Assets | Video/audio/image import and metadata are implemented; video proxies are generated on import; temporary AI candidates are planned for M6 |
 | Timeline | Multiple tracks, drag/drop, move, trim, split, undo/redo, snapping |
 | Preview | Playback synced to the playhead, scrub, rate control |
 | Export | Single preset export via FFmpeg with progress and cancel |

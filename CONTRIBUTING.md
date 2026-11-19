@@ -12,6 +12,8 @@ If a contribution is offered on different terms, state that explicitly before su
 
 ## Scope and validation
 
+Use the [Development Session Checklist](./docs/20-development-session-checklist.md) at session start and before handoff. Review related documentation, in-app Help, error catalog coverage and temporary unknown-error tasks; update affected surfaces or explicitly note when no change is needed.
+
 Discuss significant features, dependencies, model integrations, saved-schema changes and packaging work before implementing them. Commercial potential or sponsorship does not automatically expand the roadmap. Prioritize reliable workflows, useful QA evidence and maintainable contributions over feature volume.
 
 Keep changes focused, include regressions for behavior changes and update related documentation. Follow the existing validation commands in the [run guide](./docs/13-run-and-manual-testing.md). State what was tested and what remains unverified; use isolated fixtures rather than user projects. Maintainer review and acceptance are required; no response, merge or delivery deadline is guaranteed.

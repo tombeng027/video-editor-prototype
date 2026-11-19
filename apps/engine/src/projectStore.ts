@@ -1,14 +1,14 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { ProjectSchema, type Project } from "@ve/schema";
+import { parseStoredProject, type Project } from "@ve/schema";
 import { validateProject } from "@ve/timeline-core";
 
 export const PROJECT_FILE = "project.json";
 export const BACKUP_FILE = "project.json.bak";
 export const PROJECT_SUBFOLDERS = ["media", "proxies", "candidates", "exports"] as const;
 
-export type StoreErrorCode = "ALREADY_EXISTS" | "NOT_FOUND" | "CORRUPT" | "STORE_IO_FAILED" | "SAVE_FAILED" | "SAVE_CLEANUP_FAILED";
+export type StoreErrorCode = "ALREADY_EXISTS" | "NOT_FOUND" | "CORRUPT" | "UNSUPPORTED_PROJECT_VERSION" | "STORE_IO_FAILED" | "SAVE_FAILED" | "SAVE_CLEANUP_FAILED";
 
 export class StoreError extends Error {
   constructor(
@@ -29,19 +29,22 @@ const exists = async (file: string) => {
   }
 };
 
-function parseProject(text: string): { project: Project | null; problem: string } {
+function parseProject(text: string): { project: Project | null; problem: string; migrated?: boolean } {
   let json: unknown;
   try { json = JSON.parse(text); }
   catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
     return { project: null, problem: "Invalid JSON." };
   }
-  const parsed = ProjectSchema.safeParse(json);
-  if (!parsed.success) return { project: null, problem: `Invalid project fields: ${parsed.error.issues[0]?.message}` };
-  const invalid = validateProject(parsed.data);
+  const parsed = parseStoredProject(json);
+  if (!parsed.ok) {
+    if (parsed.code === "UNSUPPORTED_PROJECT_VERSION") throw new StoreError(parsed.code, parsed.message);
+    return { project: null, problem: parsed.message };
+  }
+  const invalid = validateProject(parsed.project);
   return invalid
     ? { project: null, problem: `${invalid.code}: ${invalid.message}` }
-    : { project: parsed.data, problem: "" };
+    : { project: parsed.project, problem: "", migrated: parsed.migrated };
 }
 
 async function readCandidate(file: string) {
@@ -95,15 +98,15 @@ export async function createProjectFolder(folder: string, project: Project): Pro
 /** Loads and validates a project; falls back to the backup when `project.json` is unreadable. */
 export async function readProject(
   folder: string,
-): Promise<{ project: Project; recoveredFromBackup: boolean }> {
+): Promise<{ project: Project; recoveredFromBackup: boolean; migratedFromVersion?: 1 }> {
   const main = path.join(folder, PROJECT_FILE);
   const backup = path.join(folder, BACKUP_FILE);
   const primary = await readCandidate(main);
-  if (primary.project) return { project: primary.project, recoveredFromBackup: false };
+  if (primary.project) return { project: primary.project, recoveredFromBackup: false, ...(primary.migrated ? { migratedFromVersion: 1 as const } : {}) };
   const recovered = await readCandidate(backup);
   if (primary.text === null && recovered.text === null) {
     throw new StoreError("NOT_FOUND", "No project was found in that folder.");
   }
-  if (recovered.project) return { project: recovered.project, recoveredFromBackup: true };
+  if (recovered.project) return { project: recovered.project, recoveredFromBackup: true, ...(recovered.migrated ? { migratedFromVersion: 1 as const } : {}) };
   throw new StoreError("CORRUPT", `No usable project or backup exists. ${PROJECT_FILE}: ${primary.problem} ${BACKUP_FILE}: ${recovered.problem}`);
 }

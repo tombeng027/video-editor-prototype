@@ -6,6 +6,7 @@ import type { EngineConfig } from "./config.js";
 import { MediaError, probeFile, quickHash, type MediaInfo } from "./media.js";
 import { ProxyManager } from "./proxy.js";
 import { SessionError, type ProjectSession } from "./session.js";
+import { reportDiagnostic } from "./diagnostics.js";
 
 export type ProbeFn = (file: string) => Promise<MediaInfo>;
 export type ImportOutcomeKnown = (response: ImportResponse) => void;
@@ -26,6 +27,14 @@ export function resolveAssetPath(folder: string, asset: Pick<Asset, "sourcePath"
 }
 
 export const proxyRelativePath = (assetId: string) => `proxies/${assetId}.mp4`;
+
+async function proxyFileExists(file: string): Promise<boolean> {
+  try { return (await stat(file)).isFile(); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && ["ENOENT", "ENOTDIR"].includes(String(error.code))) return false;
+    throw error;
+  }
+}
 
 async function copyToUniqueTarget(source: string, mediaDir: string, fileName: string): Promise<string> {
   const { name, ext } = path.parse(fileName);
@@ -70,13 +79,13 @@ export class Importer {
     try {
       for (const file of req.paths) {
         try {
-          if (!path.isAbsolute(file)) throw new MediaError("UNSUPPORTED", "The file path must be absolute.");
+          if (!path.isAbsolute(file)) throw new MediaError("INVALID_MEDIA_PATH", "The file path must be absolute.");
           const stats = await stat(file);
-          if (!stats.isFile()) throw new MediaError("PROBE_FAILED", "The path is not a file.");
+          if (!stats.isFile()) throw new MediaError("INVALID_MEDIA_PATH", "The path is not a file.");
           const info = await this.probe(file);
           const contentHash = await quickHash(file);
           this.session.assertVersion(version);
-          if (known.has(contentHash)) throw new MediaError("UNSUPPORTED", "This file is already imported.");
+          if (known.has(contentHash)) throw new MediaError("ALREADY_IMPORTED", "This file is already imported.");
 
           const asset: Asset = {
             id: `asset_${crypto.randomUUID()}`,
@@ -105,7 +114,20 @@ export class Importer {
         } catch (e) {
           if (e instanceof SessionError) throw e;
           if (e instanceof MediaError) failed.push({ path: file, code: e.code, message: e.message });
-          else failed.push({ path: file, code: "IMPORT_FAILED", message: e instanceof Error ? e.message : "Import failed." });
+          else if (e instanceof Error && "code" in e && ["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(String(e.code))) {
+            const missing = e.code === "ENOENT" || e.code === "ENOTDIR";
+            failed.push({ path: file, code: missing ? "FILE_NOT_FOUND" : "FILE_ACCESS_DENIED",
+              message: missing ? "The source file or containing folder is unavailable." : "The source or copy destination could not be accessed." });
+          }
+          else {
+            const diagnosticId = reportDiagnostic("IMPORT_FILE_FAILED", e, { method: "POST", route: "/project/import" });
+            failed.push({
+              path: file,
+              code: "IMPORT_FAILED",
+              message: "The file could not be imported. Check engine diagnostics using the diagnostic ID.",
+              diagnosticId,
+            });
+          }
         }
       }
 
@@ -121,10 +143,17 @@ export class Importer {
       const outcome = await this.session.apply((project) => {
         const commands: Command[] = [];
         const firstVideo = added.find((a) => a.info.kind === "video");
-        if (firstVideo?.info.fps && this.shouldAdoptFps(project)) {
+        const adoptFps = Boolean(firstVideo?.info.fps && this.shouldAdoptFps(project));
+        if (adoptFps && firstVideo?.info.fps) {
           commands.push({ type: "SetProjectFps", fps: firstVideo.info.fps });
         }
-        for (const { asset } of added) commands.push({ type: "AddAsset", asset });
+        const imageFps = adoptFps && firstVideo?.info.fps ? firstVideo.info.fps : project.settings.fps;
+        for (const { asset, info } of added) {
+          if (info.kind === "image") {
+            asset.durationFrames = Math.max(1, Math.round((info.durationSeconds * imageFps.num) / imageFps.den));
+          }
+          commands.push({ type: "AddAsset", asset });
+        }
         return commands;
       }, version);
       if (!outcome.ok) throw new Error(outcome.error.message);
@@ -132,8 +161,6 @@ export class Importer {
       const response = { project: outcome.project, imported, failed };
       onOutcomeKnown?.(response);
 
-      this.session.assertVersion(version);
-      for (const { asset, info } of added) if (asset.kind === "video") this.enqueueProxy(folder, asset, info.durationSeconds, version);
       return response;
     } catch (error) {
       const cleanupErrors: string[] = [];
@@ -147,28 +174,49 @@ export class Importer {
     }
   }
 
-  /** Re-queues proxies that are missing, e.g. after reopening a project mid-generation. */
-  async resumeProxies(): Promise<void> {
+  /** Drops stale proxy references without automatically starting expensive conversion. */
+  async reconcileProxies(): Promise<void> {
     const open = this.session.open;
     if (!open) return;
     const version = this.session.version;
     for (const asset of open.project.assets) {
       if (asset.kind !== "video") continue;
       const proxy = path.join(open.folder, proxyRelativePath(asset.id));
-      const exists = asset.proxyPath !== null && (await stat(proxy).then((s) => s.isFile(), () => false));
-      if (!exists) {
-        const source = resolveAssetPath(open.folder, asset);
-        if (await stat(source).then((s) => s.isFile(), () => false)) {
-          this.session.assertVersion(version);
-          this.enqueueProxy(open.folder, asset, asset.durationFrames * (asset.fps ? asset.fps.den / asset.fps.num : 0), version);
-        }
+      const exists = asset.proxyPath !== null && await proxyFileExists(proxy);
+      if (!exists && asset.proxyPath) {
+        const outcome = await this.session.apply([{ type: "SetAssetProxy", assetId: asset.id, proxyPath: null }], version);
+        if (!outcome.ok) throw new ImportError("IMPORT_FAILED", outcome.error.message, outcome.error);
       }
     }
+  }
+
+  async prepareProxy(assetId: string, version: number): Promise<void> {
+    this.session.assertVersion(version);
+    const open = this.session.open!;
+    const asset = open.project.assets.find((candidate) => candidate.id === assetId);
+    if (!asset || asset.kind !== "video" || !asset.fps) {
+      throw new MediaError("UNSUPPORTED", "Choose a video asset to prepare an optimized preview.");
+    }
+    const file = resolveAssetPath(open.folder, asset);
+    let sourceExists: boolean;
+    try { sourceExists = (await stat(file)).isFile(); }
+    catch (error) {
+      if (error instanceof Error && "code" in error && ["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(String(error.code))) {
+        throw new MediaError("PROBE_FAILED", "The original media cannot be read. Check its location and permissions, or relink it.");
+      }
+      throw error;
+    }
+    if (!sourceExists) throw new MediaError("PROBE_FAILED", "The original media path is not a file.");
+    this.session.assertVersion(version);
+    if (asset.proxyPath && await proxyFileExists(path.join(open.folder, asset.proxyPath))) return;
+    this.session.assertVersion(version);
+    this.enqueueProxy(open.folder, asset, asset.durationFrames * asset.fps.den / asset.fps.num, version);
   }
 
   private shouldAdoptFps(project: Project): boolean {
     return (
       project.settings.fpsFromFirstImport &&
+      project.captionCues.length === 0 &&
       !project.assets.some((asset) => asset.kind === "video") &&
       project.tracks.every((t) => t.clips.length === 0)
     );

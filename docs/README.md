@@ -2,7 +2,9 @@
 
 Status: **Draft v0.1** (prototype scope). This file is the entry point that links all documentation.
 
-Current implementation: M1-M2 capabilities and Windows launcher stabilization; M3-M6 remain planned. The product summary and key decisions below include target behavior, not a claim that AI, settings or every UI feature exists. For current evidence and review gates, start with [Review Plan and System Status](./16-review-plan-and-system-status.md).
+Current implementation: M1-M2 capabilities and Windows launcher stabilization, with M3 timeline usability in progress (multi-track editing, Properties, animations, zoom, split audio); M4-M6 remain planned. The product summary and key decisions below include target behavior, not a claim that AI, settings or every UI feature exists. For current evidence and review gates, start with [Review Plan and System Status](./16-review-plan-and-system-status.md).
+
+For every development session, use the [Development Session Checklist](./20-development-session-checklist.md): budget, scope, documentation, Help, error definitions, follow-ups, validation and handoff.
 
 ## Product summary
 
@@ -28,9 +30,12 @@ The prototype targets **PC first**. Mobile and standalone on-device editing are 
 | 12 | [Testing and Settings](./12-testing-and-settings.md) | Test strategy, app settings, logging |
 | 13 | [Running and Manual Testing](./13-run-and-manual-testing.md) | Launch steps, test media, manual test checklist |
 | 14 | [Public Participation and Demo Guidance](./14-content-and-marketing.md) | Public purpose, participation, verified demo limits and disclosure checklist |
-| 15 | [Captions Concept](./15-captions-concept.md) | Future feature: auto-captions with a separate caption timeline (design note, not scheduled) |
+| 15 | [Captions](./15-captions-concept.md) | Manual caption workspace/Preview, data contract and future SRT/burn-in/generation plan |
 | 16 | [Review Plan and System Status](./16-review-plan-and-system-status.md) | Subsystem matrix, specialist review perspectives, evidence, findings and acceptance gates |
 | 17 | [QA and Fix Readiness](./17-qa-and-fix-readiness.md) | QA issue assessment, engineering pre-fix review, reconciliation and post-fix acceptance |
+| 18 | [Error Catalog and Recovery](./18-error-catalog-and-recovery.md) | User-facing error definitions, safe recovery and temporary unknown-error development inbox |
+| 19 | [In-App Help](./19-in-app-help.md) | Offline About, task guides, feature status, animation catalog and searchable error help |
+| 20 | [Development Session Checklist](./20-development-session-checklist.md) | Recurring start/change/validation/handoff duties, including documentation, Help, catalog and credit budget |
 
 ## Key decisions at a glance
 

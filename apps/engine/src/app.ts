@@ -6,7 +6,7 @@ import { TOKEN_HEADER, TOKEN_QUERY, type ApiError, type HealthResponse } from "@
 import type { EngineConfig } from "./config.js";
 import { defaultProbes, type Probes } from "./probes.js";
 import { Importer, type ProbeFn } from "./importer.js";
-import { Exporter, type DurationProbe, type ExportRunner } from "./exporter.js";
+import { Exporter, findOfflineAssets, type DurationProbe, type ExportFileRemover, type ExportRunner } from "./exporter.js";
 import { registerExportRoutes } from "./exportRoutes.js";
 import { registerMediaRoutes } from "./mediaRoutes.js";
 import { ProxyManager, type ProxyRunner } from "./proxy.js";
@@ -14,6 +14,7 @@ import { registerProjectRoutes } from "./projectRoutes.js";
 import { RecentProjects } from "./recent.js";
 import { ProjectSession } from "./session.js";
 import { reportDiagnostic } from "./diagnostics.js";
+import { registerUnknownErrorRoutes } from "./unknownErrors.js";
 
 function tokensMatch(expected: string, provided: unknown): boolean {
   if (typeof provided !== "string") return false;
@@ -27,7 +28,7 @@ const apiError = (code: string, message: string): ApiError => ({ error: { code, 
 export async function buildApp(
   config: EngineConfig,
   probes: Probes = defaultProbes,
-  overrides: { proxyRunner?: ProxyRunner; probe?: ProbeFn; exportRunner?: ExportRunner; probeDuration?: DurationProbe } = {},
+  overrides: { proxyRunner?: ProxyRunner; probe?: ProbeFn; exportRunner?: ExportRunner; probeDuration?: DurationProbe; exportFileRemover?: ExportFileRemover; offlineAssetsFinder?: typeof findOfflineAssets } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, request, reply) => {
@@ -79,16 +80,18 @@ export async function buildApp(
   });
 
   const recent = new RecentProjects(path.join(config.dataDir, "recent.json"));
+  registerUnknownErrorRoutes(app, config.dataDir, config.version);
   const session = new ProjectSession(recent);
   const proxies = new ProxyManager(config.ffmpegPath, overrides.proxyRunner);
   const importer = new Importer(session, proxies, config, overrides.probe);
-  const exporter = new Exporter(session, config, overrides.exportRunner, overrides.probeDuration);
+  const exporter = new Exporter(session, config, overrides.exportRunner, overrides.probeDuration, undefined, overrides.exportFileRemover);
   registerProjectRoutes(app, session, recent, {
+    onRelinked: () => importer.reconcileProxies(),
     onOpened: async () => {
       proxies.reset();
       exporter.reset();
       await Promise.all([proxies.idle(), exporter.settled()]);
-      await importer.resumeProxies();
+      await importer.reconcileProxies();
     },
     onClosed: async () => {
       proxies.reset();
@@ -97,7 +100,7 @@ export async function buildApp(
     },
   }, config.projectsDir);
   registerMediaRoutes(app, session, importer, proxies);
-  registerExportRoutes(app, session, exporter);
+  registerExportRoutes(app, session, exporter, overrides.offlineAssetsFinder);
   app.addHook("onClose", async () => {
     proxies.reset();
     exporter.reset();

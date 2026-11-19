@@ -34,6 +34,7 @@ if ($OwnedOllama) {
 } finally { $setupMutex.ReleaseMutex(); $setupMutex.Dispose() }
 $fixture = Join-Path $logs "test-server.cjs"
 $dependencyFixture = Join-Path $logs ("test-dependencies-" + [guid]::NewGuid().ToString("N"))
+$ollamaPortFile = Join-Path $logs "test-ollama-port.txt"
 $sentinel = $null
 $ollamaFixture = $null
 $createdOllamaFixture = $false
@@ -118,7 +119,7 @@ try {
     Remove-Item $statePath -ErrorAction SilentlyContinue
     $statePath = $actualStatePath
   }
-  'require("http").createServer((req,res)=>{res.setHeader("Content-Type","application/json");res.end(JSON.stringify({models:[]}));}).listen(Number(process.argv[2]),"127.0.0.1");' |
+  'const server=require("http").createServer((req,res)=>{res.setHeader("Content-Type","application/json");res.end(JSON.stringify({models:[]}));});server.listen(Number(process.argv[2]),"127.0.0.1",()=>{if(process.argv[3])require("fs").writeFileSync(process.argv[3],String(server.address().port));});' |
     Set-Content $fixture -Encoding ASCII
   $p = Start-Process node -ArgumentList "`"$fixture`" 5173" -PassThru -WindowStyle Hidden
   $sentinel = Get-Identity $p
@@ -154,17 +155,18 @@ try {
   Assert-True $exited "Exited process cannot report readiness"
   $sentinel = $null
 
-  $existing = Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue
   if ($OwnedOllama) {
     Write-Host "Testing a real launcher-owned Ollama server (no models are run)."
-  } elseif ($existing) {
-    $null = Invoke-RestMethod "http://127.0.0.1:11434/api/tags" -TimeoutSec 2
-    $ollamaFixture = Get-Identity (Get-Process -Id ($existing | Select-Object -First 1).OwningProcess)
   } else {
-    $p = Start-Process node -ArgumentList "`"$fixture`" 11434" -PassThru -WindowStyle Hidden
+    $p = Start-Process node -ArgumentList "`"$fixture`" 0 `"$ollamaPortFile`"" -PassThru -WindowStyle Hidden
     $ollamaFixture = Get-Identity $p
     $createdOllamaFixture = $true
-    Wait-Ready { return [bool](Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue) } $ollamaFixture "Test Ollama API"
+    Wait-Ready { return (Test-Path -LiteralPath $ollamaPortFile) } $ollamaFixture "Test Ollama API"
+    $env:OLLAMA_URL = "http://127.0.0.1:$([int](Get-Content -LiteralPath $ollamaPortFile -Raw))"
+    Wait-Ready {
+      try { $null = Invoke-RestMethod "$env:OLLAMA_URL/api/tags" -TimeoutSec 1; return $true }
+      catch [System.Net.WebException] { return $false }
+    } $ollamaFixture "Test Ollama API"
   }
   $oldFfmpeg = $env:FFMPEG_PATH
   $oldFfprobe = $env:FFPROBE_PATH
@@ -186,7 +188,10 @@ try {
   } | Select-Object -First 1
   Assert-True ([bool]$engine) "Desktop owns an engine child"
   $engineIdentity = Get-Identity (Get-Process -Id $engine.ProcessId)
-  Assert-True ([bool](Get-NetTCPConnection -State Listen | Where-Object { $_.OwningProcess -eq $engine.ProcessId })) "Owned engine is listening"
+  $engineSocket = Get-NetTCPConnection -ErrorAction SilentlyContinue |
+    Where-Object { $_.OwningProcess -eq $engine.ProcessId -and $_.LocalPort -gt 0 -and $_.RemotePort -eq 0 } |
+    Select-Object -First 1
+  Assert-True ([bool]$engineSocket) "Owned engine has a listening socket"
   Assert-True ((Invoke-WebRequest "http://127.0.0.1:5173/" -UseBasicParsing).Content.Contains("<title>Video Editor Prototype</title>")) "Expected client responds"
   $wrong = @{ id = $testState.client.id; started = "0" }
   Assert-True (-not (Find-OwnedProcess $wrong)) "PID with mismatched creation time is not owned"
@@ -199,7 +204,7 @@ try {
   if ($OwnedOllama) {
     Assert-True (-not (Find-OwnedProcess $testState.ollama)) "Launcher-owned Ollama stops"
   } else {
-    Assert-True ([bool](Find-OwnedProcess $ollamaFixture)) "Pre-existing Ollama API survives stop -Ollama"
+    Assert-True ([bool](Find-OwnedProcess $ollamaFixture)) "External Ollama API fixture survives stop -Ollama"
   }
   Run-Launcher "stop-app" 0
   $oldProjects = $env:PROJECTS_DIR
@@ -226,6 +231,7 @@ try {
       catch { Write-Warning "Test cleanup failed: $($_.Exception.Message)" }
     }
     Remove-Item $fixture -ErrorAction SilentlyContinue
+    Remove-Item $ollamaPortFile -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $dependencyFixture) { Remove-Item -LiteralPath $dependencyFixture -Recurse -Force }
   } finally {
     foreach ($name in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name]) }

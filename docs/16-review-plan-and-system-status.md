@@ -2,11 +2,264 @@
 
 [Back to index](./README.md)
 
+**Still-image export compatibility (2026-11-19, local):** the demo export reported
+`Error opening input files: Option not found`. The same failure was reproduced
+with a synthetic GIF on local FFmpeg: its demuxer rejects the exporter’s `-loop`
+input option. The exporter now repeats the first decoded image frame in the
+filter graph instead. Five focused export tests passed, including real GIF/PNG
+overlays with exact frame counts and visible overlay near the end; engine
+typecheck and changed-file lint passed. No project data or diagnostic records
+were changed. Engine relaunch and retry of the original demo export are pending.
+
+**Manual caption workspace / Preview (2026-11-10, local, uncommitted):** owner
+chose to defer manual foundation testing until captions are available in the UI
+and approved continuing. Captions now have a collapsed-by-default count/density
+strip below the media timeline. The expanded lane shares zoom, horizontal scroll
+and playhead, with a chronological text list and whole-frame selected-cue form.
+Expanding makes room in the resizable timeline area. Add/Apply/Delete, constrained
+move/edge-retime, split and chronological merge all use existing confirmed
+autosave/history; split/merge batches are atomic Undo steps. Draft text/timing
+does not save until Apply; invalid/overlapping timing is reported, not submitted.
+Gestures cancel on Escape, capture loss/cancellation, project changes or edit
+locks. Selecting cues pauses/seeks without altering media selection; caption
+focus isolates media S/Delete shortcuts. Unrelated refresh preserves wording
+drafts; late confirmation adopts a new saved cue instead of offering a duplicate
+Add. Preview draws saved literal multiline text with fixed bottom-centered
+white/shadow styling, independently of media transforms/crop. Editor playback
+includes later caption ends; engine exports remain media-only and both the panel
+and Export dialog warn explicitly. SRT/burn-in, styling controls and generation
+remain future slices.
+
+Focused checks passed **130 distinct tests across 8 files** (128 in the affected
+workspace/Preview/timeline/export/Help gate, one selected Editor history test,
+and one safe-integer drag regression added during final review). Client
+typecheck, changed-file lint, production build and whitespace checks passed.
+Existing >500kB bundle advisory remains. Browser inspection could not reach the
+local app; no connection retries or user-project changes were made, and the
+shared page was returned to blank. Desktop visual/manual acceptance remains
+pending; the running dev client can receive these client-only changes. No
+relaunch, full suite, CI, subagents, dependencies or commit for this slice.
+Related model/command/UI/Preview/caption docs, Help and manual checks updated;
+error catalog reviewed without new codes, unknown-error inbox review still
+deferred. Next planned slice: SRT import/export and burned-in output.
+
+**Caption foundation (2026-11-10, local, uncommitted):** owner accepted crop and
+approved one plain-text lane, timeline-fixed manual cues and a schema-v2 save
+format with explicit v1 migration. `captionCues` is separate from media tracks;
+start/end use safe integer project frames with an exclusive end. Text is
+nonblank, up to 2000 characters, retained verbatim. Cues cannot overlap; IDs share
+the media entity namespace. `AddCaptionCue`, `SetCaptionCue` (text/timing) and
+`RemoveCaptionCue` use existing atomic command/autosave/inverse history paths,
+including exact original array-order restoration. Media edits do not move cues.
+FPS changes and first-video FPS adoption are blocked once cues exist.
+Saved v1 opens migrate in memory, retain existing optional media edits/timestamps,
+and show a migration warning; opening alone changes no files. The next normal
+save writes v2 and preserves the prior validated main backup. Unsupported versions
+are explicitly rejected without fallback to an older backup or overwriting newer
+data. Older binaries remain unsafe for upgraded projects; keep a separate copy.
+The initial K10 v1-to-v2 migration path is now covered, not a guarantee of
+arbitrary future-version compatibility.
+Focused checks passed **207 tests across 11 files**, covering new schema/cue/
+migration/persistence tests, existing reducer/persistence/project behavior,
+first-import FPS guards, unsupported-open navigation and Help/catalog. Affected
+schema/core/client/engine typechecks, changed-file lint, client build and diff
+whitespace check passed; existing chunk advisory unchanged. New test copies
+were adjusted to the schema/core packages' existing library targets before the
+clean final gate. Docs/Help/catalog/manual migration checks updated; unknown-error
+review remains deferred. No full suite, CI, subagents, commit or relaunch.
+Caption controls, Preview subtitles, cue-based playback duration, SRT/burned-in
+output and speech generation are deliberately unavailable in this slice.
+Next: the collapsible caption workspace and manual editing/Preview.
+
+**Crop constraint affordances (2026-11-10, local, uncommitted):** owner reported
+the preceding in-place crop/menu correction looks good. Free-form and project
+aspect choices are now disabled/greyed out until Crop is active in both the
+right-click menu and Properties. Menu radio dots visibly mark the current shared
+choice; Properties also labels Crop active/off and the selected constraint.
+No saved crop data or render behavior changes. Focused checks passed **33 tests
+across 3 files**, client typecheck, changed-file lint, build and whitespace check;
+the existing chunk advisory remains. Help and manual steps updated. No relaunch,
+full suite or subagents; this small UI change awaits desktop acceptance.
+
+**Crop interaction and menu correction (2026-11-10, local, uncommitted):** owner
+reported crop/resize interference and a clipped right-click menu, and explicitly
+chose trimming edges in place rather than automatic refitting. Preview/shared
+geometry and export now retain the original source scale/anchor; crop only trims
+the visible source edges. This intentionally supersedes the earlier local
+refitting behavior for existing crop insets; no project data migration is needed.
+Export restores the exact crop onto a transparent original-sized footprint before
+existing fit/transform/effects. Asymmetric visible bounds and subsequent resize
+snapping follow the original transform anchor. Active Crop blocks move/resize,
+Appearance and Fit, cancelling any pending transform gesture/draft. Menus are
+fixed body portals above the editor, measured/clamped to the viewport, scrollable
+when necessary, and dismissed by Escape/outside click/outside scroll/resize.
+Focused checks passed **96 distinct tests across 7 files**, including **16**
+export-argument/real-FFmpeg checks, source landmarks at identical exported pixels,
+crop/zoom/fade bounds, exclusive gestures, odd-source drag mapping, portal placement
+and dismissal, asymmetric snapping and existing Preview/Help behavior.
+The known parallel-load two-point-zoom timing flake recurred; the owner approved
+one isolated rerun, which passed. Affected schema/client/engine typechecks, lint,
+client build and whitespace check passed; existing chunk advisory unchanged.
+Browser visual verification could not connect to the local app; connection retries
+were stopped and the shared browser was returned to blank. Desktop acceptance is
+pending; engine export changes need an app relaunch. No full suite, CI, subagents,
+commit or relaunch was performed for this correction. Docs/Help/manual checks
+updated; error catalog unchanged and unknown-error review remains deferred.
+
+**Crop controls (2026-11-10, local, uncommitted):** Preview Crop toggle, shared
+right-click/Properties Free-form and Project aspect locked modes, four edge/four
+corner handles and Properties source-percent fields with Apply/Reset/Cancel draft
+are implemented. Drafts only change Preview; a completed gesture or Apply saves
+one `SetClipCrop` through existing confirmation/autosave/history. Reset removes
+crop without changing other clip edits. Escape, lost capture, cancellation and
+blocked/changed selection discard gestures; clicks/no-ops do not save. Lock uses
+source pixel dimensions and the current project ratio on each crop edit; extreme
+ratios have explicit guidance. Draft source mapping is captured before live
+refitting; numeric fields mirror canvas drafts. Crop gestures do not snap.
+Focused checks passed **8 files / 89 distinct tests**, including crop geometry,
+controls, cancellation/guards, existing Properties/Preview/Help, confirmed
+crop Undo/Redo and the real-FFmpeg crop/zoom/fade pixel regression. The first
+gesture assertions needed floating-point tolerances; the integration fixture
+needed jsdom pointer-capture support before its clean rerun. A pointer-noise
+regression now protects whole-source-pixel rounding. Client typecheck, changed-file
+lint, production build and diff whitespace check passed; the existing chunk-size
+advisory remains. Docs/Help/manual checks are updated; schema/error definitions
+need no change. Unknown-error follow-up review remains deferred. No full suite,
+CI, subagents, commit or app relaunch. Desktop crop acceptance is pending; the
+owner has separately accepted Fit to canvas.
+
+**Fit to canvas (2026-11-10, local, uncommitted):** owner reported the export
+looked good and approved Fit preserving crop/opacity/effects. Preview and the
+picture's right-click menu now center/reset base scale through `SetClipTransform`,
+with normal autosave/history and pause-to-edit. Track locks and pending/closing
+states are respected. This does not remove animated zoom; letterboxing is allowed.
+The owner subsequently confirmed Fit works. Help, technical docs and manual checks are updated;
+no new schema/error codes or catalog changes. Unknown-error review stays deferred.
+Focused checks passed **4 files / 62 tests**, client typecheck, changed-file lint,
+production build and `git diff --check` (existing chunk advisory unchanged).
+The first new guard test caught cached track-lock state in the Preview action;
+Fit now reads current project membership/locks. No full suite, CI, subagents or
+app relaunch were run.
+
+**Canvas handle alignment fix (2026-11-10, local, uncommitted):** owner reported
+inset handles after resizing/moving a clip in 9:16 and switching to 16:9. A
+confirmed mismatch was found: selection/hit-testing used resting appearance while
+Preview applied zoom/animations. Selection, hit-testing and snapping now use the
+displayed transform at the paused playhead. Gestures invert that transform before
+saving appearance, preserving effects and avoiding double-applied zoom. The
+exclusive timeline endpoint uses the same last included frame as Preview.
+Fully offscreen slide endpoints cannot invert their position; handles are disabled
+with playhead guidance. Focused canvas/Preview checks passed **3 files / 53 tests**,
+client typecheck and changed-file lint; **6 Help tests**, client production build
+and `git diff --check` also passed (existing chunk-size advisory unchanged).
+An isolated browser test with the actual
+Preview and a synthetic image verified portrait-to-landscape changes and pane
+resizing with maximum border error below **0.02 CSS pixels**; no user project was
+modified. Owner retest is pending. No new error codes, full suite, CI or subagents;
+unknown-error inbox review remains deferred.
+
+**Crop rendering (2026-11-10, local, uncommitted):** saved crop now propagates
+through every visual render segment and is applied before fit/transform/motion
+in Preview and FFmpeg. Shared whole-source-pixel rounding retains at least one
+pixel per dimension. Preview uses the original source window even for optimized
+media. Canvas selection, hit-testing and resize snapping use cropped dimensions.
+Focused checks passed **99 distinct tests**: **67** across
+geometry/crop/Preview/canvas, **16** Help/render-plan tests, **14** export-argument
+tests and **2** selected real-FFmpeg tests. The final Preview/canvas rerun passed
+**44 tests**, including crop add/reset without media remounts or stale transforms
+and cropped resize snapping. Real exports cover asymmetric
+odd-pixel video/image crops, portrait/landscape fit, zoom/fade, and uncropped
+placement. Affected typechecks, changed-file lint and client build passed; the
+existing >500 kB chunk advisory remains. No full suite, CI or subagents were used.
+The existing error definition needs no change; Help and technical docs distinguish
+render support from pending controls. Manual crop acceptance is deferred until
+controls exist; no app relaunch was performed and inbox review remains deferred.
+Next: Crop toggle/right-click modes, Properties fields and canvas handles.
+
+**Canvas aspect controls (2026-11-10, local, uncommitted):** Preview now offers
+16:9, 9:16, 1:1 and 4:3 through `SetProjectCanvas`. The control changes project and
+export dimensions together, preserves clip edits, pauses playback, and uses normal
+autosave/history/recovery. The long edge is preserved where possible with even,
+exact-ratio dimensions. Custom original dimensions are restored exactly by Undo.
+Focused evidence: **44 tests** across aspect/crop/catalog/Help, the preview suite,
+**2 selected editor aspect tests**, **1 selected engine persistence test**, and
+**1 selected real-FFmpeg test** verifying all four MP4 shapes and letterboxing.
+Affected schema/core/client/engine typechecks, changed-file lint and client build
+passed (existing >500 kB chunk advisory). The initial aspect tests compared fixture
+timestamps from separate wall-clock calls; fixed timestamps now make the fixtures
+deterministic, including the tightly related crop fixture. No full suite, CI or
+subagents were used. Manual desktop acceptance and an app relaunch are pending.
+Crop rendering and controls remain the next slice; inbox review remains deferred.
+
+**Crop foundation (2026-11-10, local, uncommitted):** owner-approved controls are
+a Crop toggle and right-click Crop section, Free-form or project-canvas-aspect-locked
+modes, with both Properties fields and canvas handles. Only the data/command slice
+is implemented: optional visual-only crop insets, `SetClipCrop`, exact inverse,
+saved-project validation, and `INVALID_CROP` in the shared catalog/Help error list.
+Preview, export, controls and manual crop acceptance are still pending; cropped
+projects are not ready for production use. Focused checks passed **5 files / 111
+tests**, plus **1 selected engine autosave/reopen/Undo/Redo test** (36 unrelated
+engine tests skipped), affected schema/core/engine/client typechecks,
+changed-file lint, client production build and `git diff --check`. The build
+retains its existing >500 kB chunk advisory. The first typecheck found a test-only `structuredClone` call
+outside the core package's configured libraries; the fixture copy now uses its
+existing factory instead. The full suite, CI and a new app launch were not run.
+The dedicated unknown-error inbox review remains deferred; recording is unchanged.
+Next: shared crop preview/canvas geometry and export parity before enabling UI.
+
 This is the reusable starting point for system reviews, not a claim that every path is tested. Use it with [Milestones](./09-milestones.md), the authoritative issue IDs in [Known issues](./10-future-features.md), and the [Run guide](./13-run-and-manual-testing.md). Do not maintain competing issue lists here.
 
 For issue diagnosis and before implementing an approved fix, use [QA and Fix Readiness](./17-qa-and-fix-readiness.md): compare QA acceptance conditions with the engineering cause/fix assessment, investigate factual disagreements, and escalate unresolved product or risk decisions to the user.
 
-**Latest gate decision (2026-11-03):** stabilization changes reviewed on `main` were committed locally as `72bf7ee`; the worktree is clean and the branch is one commit ahead of `origin/main`. This review inspected those changes and cross-checked the S01-S14 matrix against prior evidence; unchanged subsystems and platform/legal gates were not freshly re-exercised. Validation passed: **23 files / 286 tests**, workspace typecheck, lint on changed TypeScript sources/tests, and production client build. No hosted CI, launcher/Python, or manual platform acceptance was run. No new P1 blocker was found; K24/K26 remain partial. Next: uncertain import reconciliation, then media refresh/proxy/SSE/preview recovery; K29 must precede K21 cleanup UI and M3 remains gated. R1 source licensing/contribution terms remain documented; R2 needs per-promotion checks, while R3/R4/R5 remain trigger-based publication gates. No live release/legal clearance was checked. The stabilization commit has not been pushed or hosted-tested.
+**Latest gate evidence (2026-11-03, K29 follow-up):** the accumulated recovery, media freshness and diagnostic changes are local and uncommitted. The JavaScript workspace suite passed **25 files / 327 tests**; the vision suite passed **1 pytest**; Windows launcher and log-retention integration scripts passed; workspace lint/typecheck, client production build and `git diff --check` passed in the full local review. The K29 follow-up then passed expanded Windows retention failure-injection/CLI checks and the launcher integration rerun. The launcher test checks the engine-owned socket without depending on the Windows TCP state label and uses an ephemeral mock Ollama endpoint; the optional real owned-Ollama scenario was not run. No hosted CI or fresh manual browser/native-picker/accessibility acceptance was run. K18/K19/K29/K32 have local coverage; K24/K26 remain partial, and K21's in-app monitoring/cleanup UI remains pending. K29's cleanup prerequisite is met locally. The earlier recommendation to finish K24/K26 before M3 is superseded by the owner's decision to proceed toward a demo while keeping these items open. Current inventory: **23 locally resolved / 11 open or partial**. R1 source licensing/contribution terms remain documented; R2 needs per-promotion checks, while R3/R4/R5 remain trigger-based publication gates. No live release/legal clearance was checked.
+
+**K29 retention follow-up (2026-11-03):** cleanup results now distinguish `completed`/`partial`/`failed` with CLI exit codes `0`/`2`/`1`; JSON stays on stdout while coded warnings go to stderr and the local log. Remaining storage is remeasured after deletion and warning writes, including partial failures; failed sessions remain identified for retry. Close metadata uses a same-directory atomic replacement. Deletion holds delete-compatible handles through removal and removes nonmetadata files before `session.json`, preserving metadata when a file is locked. The isolated Windows retention suite passed with lock/failure/retry injection, metadata write failure, byte-accounting checks and direct CLI exit/output assertions. No hosted verification was run; K29 is locally fixed, while K24/K26 remain partial and K21 UI remains pending.
+
+**Editing features slice (2026-11-04 to 2026-11-05, local, uncommitted):** entrance/exit animation catalog (five presets each, percentage lengths on one shared two-handle bar), slider + − / + appearance and speed controls (Properties Trim removed as a duplicate of edge trimming), one two-point zoom per visual clip with timeline diamond markers, selection kept on empty timeline clicks and Escape to deselect, Split audio (`SplitAudio`/`INVALID_AUDIO_SPLIT`), and timeline-as-truth audio (export sums every stacked visual clip's sound like preview; video/overlay tracks gained Mute), and canvas editing in Preview (select top-most picture, drag to move, proportional corner resize, snapping guides with Alt/Snap toggle, pause-to-edit, right-click layer order via existing track commands; Preview/export placement verified by a real-FFmpeg pixel check; free resize and crop backlogged; owner tried it on the desktop on 2026-11-05 and reported it works). Each slice passed focused tests including real-FFmpeg export checks, affected typechecks, changed-file lint and the client build; the last client+packages run passed 461/462 with one known parallel-load flake (zoom Properties or modal relink) that passes alone. **Full local gate (2026-11-05):** the JavaScript workspace suite passed **37 files / 628 tests**; workspace lint and typecheck, the client production build and `git diff --check` passed. The first run found 3 engine tests with outdated expectations from earlier uncommitted slices (not product regressions): a persistence "invalid transform" case that became valid when position bounds widened, a duplicate-import case expecting `UNSUPPORTED` instead of the newer `ALREADY_IMPORTED`, and a proxy-callback case that relied on import queueing proxies automatically. The tests were updated to exercise the intended rules. Vision pytest, Windows launcher scripts and hosted CI were not run. Owner desktop acceptance is pending for all of these; crossfades and multiple zooms per clip are deferred ([future features](./10-future-features.md)). The unknown-error inbox was reviewed on 2026-11-05 and is empty.
+
+**Frame-step slice (2026-11-09, local, uncommitted):** the approved pre-change JavaScript gate passed **39 files / 642 tests**, workspace lint/typecheck, client production build and `git diff --check`. Previous/Next frame transport buttons and Left/Right arrow shortcuts now pause and move one project frame, bounded to included frames, without editing the saved project. Post-change focused checks passed **6 files / 176 tests**, client typecheck, changed-file lint, client production build and `git diff --check`; owner desktop acceptance remains pending. The initial focused run found a test selector for a nonexistent timeline zoom slider; the test was corrected without changing product behavior. **Button icon pass (2026-11-10):** transport and Split/Delete buttons now use Lucide icons (`lucide-react`) with a primary Play button and a visible keyboard focus ring; aria-labels and tooltips are unchanged. Focused component tests, typecheck, lint, build and `git diff --check` passed (the known clipProperties zoom test flake passes alone). **About credits (2026-11-10):** the Help About tab now shows the developer credit, a thank-you note, external support links (opened in the system browser by the desktop shell) and open-source credits; it stays static and offline. The build retains its existing >500 kB chunk-size advisory. Crop is next for planning, not yet implementation. Dedicated unknown-error inbox review remains deferred by the owner; records and automatic recording are unchanged. No CI, vision or launcher integration suites were run.
+
+**Demoable media direction (owner decision):** proceed with media editing before the remaining stabilization gate is fully closed. Approved behavior: stills default to five seconds and are adjustable by trimming; overlapping visual tracks composite with higher tracks in front; audio clips preserve natural duration, loop when extended, and live on addable/reorderable/muteable audio tracks. Still-image import/insertion/preview are implemented: supported stills import with a five-second project-frame duration, can be added to the first visual track, and render through a token-protected engine source route. The owner confirmed images can be added to the timeline but deferred remaining image issues; this is not full manual image acceptance. K17's reported keyboard-focus failure and partial K24/K26 coverage remain open; they are deferred, not passed.
+
+**Visual demo slice (2026-11-03):** added edge-drag trimming, visual-track creation and adjacent reordering, back-to-front multi-layer preview, and layered video/image FFmpeg export. Focused validation passed **6 files / 96 tests**, including a real FFmpeg pixel check, plus affected-package typechecks and changed-file lint. Manual acceptance for visual trim/order/compositing is still unchecked in the run guide; simultaneous-video sync remains approximate. Audio placement, track controls, synchronized audio and loop-on-extension export remain deferred.
+
+**Audio timeline slice (current):** audio assets can be added at the playhead on dedicated audio rows, with new rows created when existing rows are occupied. Audio clips can be dragged and trimmed; forward moves and extensions apply the same next-clip head trim / consume-and-ripple behavior as visual tracks. Audio rows can be added, reordered and muted. Browser preview synchronizes independent audio elements to the shared playhead and loops extended clips; FFmpeg export includes audio-only tails, loops sources and mixes unmuted audio rows with the visual audio bed. Focused validation passed **9 files / 154 tests**, plus schema/timeline-core/client/engine typechecks and the client production build; manual audio acceptance remains pending. Audio/video sync is approximate, not sample-accurate.
+
+**Visual clip movement/snapping slice (current):** dragging a visual clip moves it along its existing track without changing its source range. Clicks without a drag still scrub. Either edge snaps within 8 screen pixels to time zero, the playhead or another visual clip edge, with a guide shown during the draft; same-track overlap behavior remains governed by the timeline reducer. Manual acceptance remains pending.
+
+**Trim interaction correction (2026-11-03):** trim drag now anchors to the actual pointer-down position, captures pointer events on the timeline container, and commits the final pointer-up position. This avoids handle-width-dependent trim offsets and missed commits; a focused regression covers extending a previously shortened clip back to its source limit. Validation passed **4 focused files / 71 tests**, client typecheck and changed-file lint. Manual playback acceptance remains pending.
+
+**Timeline playhead alignment correction (2026-11-03):** removed a duplicate track-label offset from the red playhead positioning so its visual position matches the frame selected by timeline clicks and scrubbing. Focused timeline validation passed **2 files / 25 tests**; client typecheck/lint and `git diff --check` passed. Refresh/reopen the client to load the updated renderer before manual confirmation.
+
+**Preview pause after clip transition (2026-11-03):** invalidate pending native `play()` requests on pause or source change, pause video elements when sources change and on component cleanup, and prevent stale play-promise completions from restarting playback. The focused preview suite passed **16 tests**; client typecheck and changed-file lint passed. Manual playback acceptance remains pending.
+
+**Same-track trim collision behavior (2026-11-03):** extending a clip trims the head of the next clip when some of it remains, preserving that clip's end. If the extension would consume the next clip, that clip moves intact and following clips ripple forward as needed. The timeline shows affected clip positions/ranges during the drag; `MoveClip` inverses and trim inverses restore the original state. Focused validation passed **5 files / 82 tests**, affected-package typechecks and changed-file lint. Manual acceptance remains pending.
+
+**Command recovery follow-up:** command batches now accept attempt UUIDs and expose bounded in-memory pending/done/failed/unknown status. The editor checks ambiguous outcomes without resubmitting, locks edits/navigation while unresolved, and requires authoritative refresh plus explicit confirmation for unknown outcomes. Focused validation passed: **3 files / 75 tests**, workspace typecheck, changed-file lint, client production build and `git diff --check`. At this checkpoint, the full suite had not yet been rerun after command recovery; the later full local gate at the top of this document supersedes that validation status. The command-recovery work and preceding media/proxy/preview follow-ups remain uncommitted.
+
+**K24/K26 follow-up (2026-11-03):** proxy SSE recovery now has focused coverage for malformed JSON/schema events, failed snapshots preserving last-known status, disconnect/reconnect reconciliation and stale snapshots after engine-config changes. Recent-project and default-folder GETs now have 15-second deadlines and explicit retry controls. Export cleanup failures now use safe correlated background diagnostics and expose the diagnostic ID; import/command status UIs also retain IDs. Validation passed: **65 tests across 5 focused files** (28 filtered), workspace typecheck, changed-file lint, client production build and `git diff --check`. At this checkpoint no full suite, hosted CI or platform acceptance had been run. Broader media/API edges and expected/background-error coverage remain open; health presentation and durable diagnostic capture were added in the subsequent diagnostic follow-up below. The later full local gate at the top supersedes this validation status. These changes are local and uncommitted.
+
+**K24/K26 diagnostic follow-up:** health details/recovery hints now display inline for unavailable or unknown components. Unexpected per-file import failures use safe structured diagnostics and expose the ID in the import failure UI; generic background export failures retain their user-facing message and add a correlated ID without logging the message. The engine now persists structured records under its data directory with three 1 MiB files per run, 14-day inactive-run retention, and a 10 MiB soft aggregate budget; active/uncertain runs are preserved, stderr capture remains intact, and sink failures do not fail engine operations. Sink/error-correlation validation passed: **10 tests across 3 focused files**; workspace typecheck and changed-file lint passed. The earlier UI/recovery slice passed **14 tests across 5 focused files**, workspace typecheck, changed-file lint and client production build. At this checkpoint no full suite, hosted CI or manual platform acceptance had been run; the later full local gate at the top supersedes this validation status. Broader media/API freshness cases remain open. These changes remain local and uncommitted.
+
+**K24 media freshness follow-up:** media-status now returns the active project ID, and the engine rejects the filesystem-scan result if project generation, identity, folder or saved project revision changed while checking. The editor ignores mismatched-project responses and rechecks when asset identity/source metadata changes, not merely when asset count changes. Validation passed: **4 focused tests across 2 files**, workspace typecheck and changed-file lint. No full suite or hosted CI was run. This closes the identified offline-media snapshot ownership edge, not every remaining media/API case; local changes remain uncommitted.
+
+**K24/K26 verification and documentation follow-up (2026-11-03):** reviewed shared API deadline/result handling, operation recovery and project identity guards, proxy reconciliation, preview retry, diagnostic allowlisting/persistence, and relevant UI/test coverage. Corrected stale run-guide statements: editor API calls use the shared 15-second deadline, and structured engine diagnostics are persisted as well as written to stderr. K24/K26 remain partial; the run guide now defines focused acceptance for API failure edges, expected-domain codes, correlation, and the limits of redaction/capture. Focused validation passed: **9 files / 158 tests** across client recovery/preview/proxy and engine diagnostic/project/media/export tests. The diagnostic-sink warning was expected from a test simulating an invalid log directory. No full suite, hosted CI or native/manual acceptance was run; documentation and accumulated code changes remain local and uncommitted.
+
+**K24 API failure-matrix follow-up (2026-11-03):** added a focused regression matrix for all 16 client API wrappers: rejected fetch, non-JSON HTTP error, schema-invalid success, 15-second timeout/abort, and stalled body parsing. Existing UI tests cover recent/default-folder retry, ambiguous mutation recovery, media refresh failures/project mismatch, proxy disconnect/reconciliation and preview retry. Validation passed: **4 focused files / 79 tests**. No production behavior change or full-suite rerun; K24 remains partial pending broader media/API edge acceptance and manual platform checks. Changes remain local and uncommitted.
+
+**K24 stale media snapshot follow-up (2026-11-03):** added an Editor-level regression that changes asset content identity within the same project while an older media-status request is in flight, then resolves the old response after the refreshed snapshot. The old offline result is ignored. The focused modal/editor suite passed: **38 tests**; client typecheck, targeted lint and `git diff --check` passed. No production behavior change or full-suite rerun; K24 remains partial for additional API/media edges and manual platform acceptance.
+
+**K24 stale lookup response follow-up (2026-11-03):** added Landing/New Project UI regressions where old recent-project and default-folder requests resolve after an engine-config change; only the new configuration's result is applied. Added explicit coverage that a user-entered folder is preserved when the default lookup resolves late (alongside the existing explicitly-cleared-location case). Focused modal/Landing suite passed: **41 tests**; client typecheck and targeted lint passed. No production change or full-suite rerun; K24 remains partial pending broader media/API edges and manual platform acceptance.
+
+**K24 project refresh recovery follow-up (2026-11-03):** verified the Editor path triggered after proxy completion: an unreachable authoritative project read displays its code and retry action without replacing the current project; a successful explicit retry adopts the refreshed state and clears the error. Focused modal/editor suite passed: **42 tests**; client typecheck, targeted lint and `git diff --check` passed. No production behavior change or full-suite rerun; K24 remains partial.
+
+**K24 import status retry follow-up (2026-11-03):** added an AssetsPane regression where import times out, the first status request is unreachable, and a later check confirms the same attempt completed. The path remains locked after the failed status read; success adopts the project without resubmitting import. Focused AssetsPane suite passed: **16 tests**; client typecheck and targeted lint passed. No production behavior change or full-suite rerun; K24 remains partial.
+
+**K24 command status retry follow-up (2026-11-03):** added an Editor regression where a command times out, its first status check is unreachable, and a later check confirms completion. Editing and Projects navigation remain locked after the failed read; the retry checks the same attempt, unlocks only after completion, and does not resubmit the batch. Focused modal/editor suite passed: **43 tests**; client typecheck, targeted lint and `git diff --check` passed. No production behavior change or full-suite rerun; K24 remains partial.
+
+**K24 close/reopen stale-refresh follow-up (2026-11-03):** added an App-level regression that starts an authoritative refresh in one Editor, closes and reopens the same project, then resolves the old response. The reopened editor retains its own project state. Related close, export-status, media-refresh and proxy reconciliation UI failure/retry cases were already present in focused tests; the close/reopen case passed in the combined targeted run: **3 files / 70 tests**. Client typecheck, targeted lint and `git diff --check` passed. No production behavior change or full-suite rerun. Native picker, browser codec and accessibility checks remain manual acceptance; K24 remains partial.
+
+**Owner manual acceptance report (2026-11-03):** owner reports native picker and preview-recovery checks “seem to pass”; keyboard check failed because Tab/Shift+Tab traversed menus and Escape had no effect. The uncertain-operation scenario was not attempted. This contradicts relying on component tests alone for K17 focus behavior; K17 manual acceptance is now recorded as failed/pending reproduction. Owner considers current stabilization adequate to proceed toward a demoable product, while still identifying missing image timeline support and audio-track placement as product gaps. Images are explicitly rejected by engine import; audio import is supported, but the Assets pane only exposes timeline placement for video, and separate audio tracks do not currently play in preview or export. Exact image duration/audio placement-and-mix behavior needs owner decision before implementation.
 
 ## Product contract
 
@@ -87,7 +340,7 @@ Snapshot: **2026-10-12, Windows local working tree**. "Implemented" means capabi
 | S05 Timeline/editing | Add video to one track, select, split/delete, scrub/zoom; engine owns state | [Editor](../apps/client/src/components/Editor.tsx), [Timeline](../apps/client/src/components/Timeline.tsx), [Operations](../apps/client/src/timelineOps.ts) | Rapid edits and background refreshes must not adopt stale state (K12). Undo/redo buttons are disabled; move/trim gestures, snapping, relink and track management are planned. One commit per gesture/save strategy remains K13. | M3-A, then M3-B/C |
 | S06 Preview/audio | One video element, shared clock, inclusive clip/proxy clamps, source-continuity seek and boundary hold, video audio and rate control | [Preview](../apps/client/src/components/Preview.tsx), [Preview regressions](../apps/client/src/components/preview.test.tsx), [Playback](../apps/client/src/playback.ts), [Clock](../apps/client/src/clock.ts) | K32 locally verified with component and decoded-colour media evidence; approximate seeks/rates/codecs not fully certified. Missing/corrupt proxy and rejected play still need K24 states. No preloading, separate audio or transform rendering. | Remaining media/error recovery; explicit M3 contract |
 | S07 Render/export | Originals, flattened top-track plan, MP4 preset, progress, duration verification, generation-bound reservation and unique exclusive outputs | [Plan](../packages/timeline-core/src/renderPlan.ts), [Exporter](../apps/engine/src/exporter.ts), [Lifecycle tests](../apps/engine/src/lifecycle.test.ts) | K16/K25 maintained; published K18/K19 recovery plus local K24 correlated export-start recovery pass. Unknown starts remain locked until matching status; no durable history/idempotent retry. Hard-link publication requires support; many-cut length is L8. | Preserve lifecycle/recovery; remaining K24/K26 |
-| S08 UI/accessibility/layout | Landing/editor, native pickers, persistent panes, shared modal policy, save status and create/open/export/close recovery | [Landing](../apps/client/src/components/Landing.tsx), [Project recovery](../apps/client/src/useProjectOperation.ts), [Modal](../apps/client/src/components/Modal.tsx), [Dialog](../apps/client/src/components/ExportDialog.tsx), [Close consumer](../apps/client/src/App.tsx), [CSS](../apps/client/src/styles.css) | K17/K30 maintained; K18 retry/cancel and partial K24 operation recovery verified in recorded scopes. Native recovery smoke uses synthetic responses, not real picker/accessibility certification. K28 viewport/K3 picker checks remain. No Settings, drag/drop, search, frame-step or caption UI. | Remaining recovery/layout gates |
+| S08 UI/accessibility/layout | Landing/editor, native pickers, persistent panes, shared modal policy, save status and create/open/export/close recovery | [Landing](../apps/client/src/components/Landing.tsx), [Project recovery](../apps/client/src/useProjectOperation.ts), [Modal](../apps/client/src/components/Modal.tsx), [Dialog](../apps/client/src/components/ExportDialog.tsx), [Close consumer](../apps/client/src/App.tsx), [CSS](../apps/client/src/styles.css) | K17/K30 maintained; K18 retry/cancel and partial K24 operation recovery verified in recorded scopes. Native recovery smoke uses synthetic responses, not real picker/accessibility certification. K28 viewport/K3 picker checks remain. No Settings, drag/drop, search or caption UI. Frame-step controls implemented locally (2026-11-09), desktop acceptance pending. | Remaining recovery/layout gates |
 | S09 Engine/API/diagnostics | Loopback service, typed lifecycle/store/recent outcomes, guarded close, project/export attempt recovery and common safe route diagnostics | [App](../apps/engine/src/app.ts), [API client](../apps/client/src/projectApi.ts), [Project routes](../apps/engine/src/projectRoutes.ts), [Session](../apps/engine/src/session.ts) | K24 operation deadlines/reconciliation maintained; mutation/media/event recovery remains. K26 partial: unexpected-route/preparation/operation code-ID correlation and safe stderr metadata verified; expected-domain/job/health and durable logging not fully integrated. Cache health probes (L5); dev-token is L4. Not a vulnerability audit. | Remaining K24/K26 recovery before expansion/distribution |
 | S10 Electron/process lifecycle | Dynamic engine port/token, isolated preload, native dialogs, engine parent-exit watchdog | [Desktop](../apps/desktop/src/main.ts), [Launch helpers](../apps/desktop/src/engineLaunch.ts), [Watchdog](../apps/engine/src/parentWatch.ts) | Check actual engine exit/startup dialogs and close with jobs active. Helper/launcher tests do not cover all renderer, picker or navigation interactions (L6/K3). Other desktop platforms unverified. | Desktop acceptance; packaging only when needed |
 | S11 Windows launcher | Readiness, owned PID/time/tree cleanup, rollback, locks, suite isolation and explicit Electron setup | [Common](../scripts/launcher-common.ps1), [Start](../scripts/start-app.ps1), [Stop](../scripts/stop-app.ps1), [Tests](../scripts/test-launcher.ps1) | Hosted Windows startup failed on missing Electron binary (K34); explicit setup, recovery hints and diagnostic regressions now pass locally and in hosted run 38198160629. K15/K20 launcher regressions pass there too. Preserve unrelated services; real launcher-owned Ollama remains unverified. | Setup/hosted gate passed; preserve regressions |
@@ -167,7 +420,7 @@ Scope: test safety (K33), import/project ownership (K22), export lifecycle (K16)
 | Specialist / contract | Implementation and maintained evidence | Outcome / remaining limit |
 |---|---|---|
 | S03 ingestion/concurrency | Opening generation captured before queued import; checked after preparation and inside queued commit/proxy metadata; serialized imports; COPYFILE_EXCL allocation; copied-file rollback. [Lifecycle regressions](../apps/engine/src/lifecycle.test.ts) cover switch/close/same-folder reopen, stale queued commit, concurrent duplicates, preexisting-file preservation and commit/cleanup failure. | K22/K8 locally verified. Already committed media is not deleted on a later project change. Interrupted-process orphan recovery is not a general sweeper. |
-| S03 timebase policy | Fps adoption is planned against current state inside the session queue. Audio alone does not consume "first video"; a nonempty timeline prevents a rate change. Audio-first, mixed batch, concurrent, reopen and concurrent timeline-edit tests pass. | K31 locally verified; independent audio playback/editing UI is still future work. |
+| S03 timebase policy | Fps adoption is planned against current state inside the session queue. Audio alone does not consume "first video"; a nonempty timeline prevents a rate change. Audio-first, mixed batch, concurrent, reopen and concurrent timeline-edit tests pass. | K31 locally verified; independent audio playback/editing UI is implemented with focused coverage, with manual acceptance pending. |
 | S04/S07 job ownership | Export reserves before preflight; reset retains the reservation until settled. Generation/cancellation checks cover runner, duration probe and publication. Proxy reset suppresses stale completion and cleans its own output. | K16 locally verified: concurrent start yields one runner; preflight cancellation/reset starts none; probe/finalization cancellation leaves no final/partial output. |
 | S07 output identity | UUID final/partial names; no-overwrite same-volume hard-link publication; rollback after cancellation during publication; explicit cleanup-failure code/path. Same-clock and occupied-final-path tests pass. | K25 locally verified on this Windows filesystem. Unsupported hard-link filesystems fail rather than overwrite; no portability claim. A completed `done` output is the commit boundary, not deleted by a later cancel. |
 | S04/S10 writer settlement | FFmpeg error/abort waits for child close; project hooks and engine close await proxy/export settlement. [Child-close tests](../apps/engine/src/ffmpegRun.test.ts) and deferred engine-close tests prove cleanup does not race a late writer. | Local lifecycle checks pass. Duration probing can still delay cancellation/shutdown until it settles; actual native-window acceptance remains separate. |
@@ -321,7 +574,7 @@ Issue descriptions/status remain authoritative in the backlog. There are **15 op
 
 Locally resolved K entries: K2, K4, K6, K7, K8, K11, K14, K15, K16, K17, K20, K22, K23, K25, K27, K30, K31, K33, K34. Resolved limitation: L1. K7's missing-media reporting is implemented, but K19 still covers the export policy mismatch; K14's save-status UI exists, but K12/K24 cover broader state/error races. There are 34 K entries: 19 locally resolved and 15 open/partial. Hosted JS/vision and corrected Windows checks passed for baseline ef8f353; the new modal slice is local only and manual acceptance limits remain explicit.
 
-Features that are not bugs: M3 Undo/Redo UI, gestures, snapping, relink and track management; M4 chat; M5 proposals; M6 vision/candidates; Settings, independent audio/compositing, captions, mobile and GPU upgrades. Keep them as roadmap work, not "missing fixes" that endlessly block stabilization.
+Features that are not bugs: M3 Undo/Redo UI, snapping, relink and broader visual track management; M4 chat; M5 proposals; M6 vision/candidates; Settings, sample-accurate audio sync, captions, mobile and GPU upgrades. Keep them as roadmap work, not "missing fixes" that endlessly block stabilization.
 
 **Next bounded implementation recommendation:** export polling/cancel recovery and used-media consistency (K18/K19), with the closely related close-result visibility under K24. Follow with K32 preview boundaries and remaining K24/K26 request/event/media observability, then K29 before K21 controls. Do not restart the same broad review without a concrete new question.
 
@@ -625,10 +878,10 @@ No new licensing decision, code scope or distribution activity is needed for rou
 1. **K24 uncertain import outcome and refresh ownership:** introduce bounded import response recovery with operation identity/status; never repeat a possibly committed import blindly. Prove success/failure/unknown, navigation/same-folder reopen, copied-file cleanup and reconciliation against current engine/project state.
 2. **K24 media/proxy/SSE/preview failures:** typed visible refresh/retry states, event reconnection or authoritative refresh, malformed-event handling and rejected play/decode behavior; guard stale responses by project/asset generation. Verify actual UI outcomes, not helpers alone.
 3. **K26 integration:** migrate expected/background-job failure reporting and useful health/UI correlation selectively; preserve safe allowlists and avoid raw messages/request logging. Add stderr capture/privacy assertions for each path; do not claim universal redaction until audited.
-4. **K29 before K21 cleanup UI:** return accurate partial/failed cleanup results, remeasure after partial deletion, commit metadata safely and inject failure windows while preserving active-writer protections. Only then design K21 periodic nonblocking warnings/controls.
+4. **K29 before K21 cleanup UI:** return accurate partial/failed cleanup results, remeasure after partial deletion, commit metadata safely and inject failure windows while preserving active-writer protections. This prerequisite is now locally implemented and validated; K21 periodic nonblocking warnings/controls remain a separate future slice.
 5. **M3 remains gated:** K12 before Undo/Redo; K13 before drag editing; K28 viewport constraints and relevant UI/manual acceptance before layout-dependent scope.
 
-**Gate:** proceed with bounded remaining K24 recovery and continued K26 integration, not M3 expansion. The import outcome-recovery slice is locally validated; K24 remains partial alongside K26. Inventory stays **22 resolved / 12 open or partial**. K29 still gates cleanup UI; K12/K13 gate dependent editing work.
+**Gate:** proceed with bounded remaining K24 recovery and continued K26 integration, not M3 expansion. The import outcome-recovery slice is locally validated; K24 remains partial alongside K26. K29's prerequisite is met locally; K12/K13 gate dependent editing work.
 
 ## Priority and next acceptance gates
 
@@ -636,7 +889,7 @@ No new licensing decision, code scope or distribution activity is needed for rou
 
 1. **Test ownership and project/job isolation (P1): passed locally.** K33/K22/K16/K8/K25/K31 have maintained regressions. Preserve them when changing persistence, job callbacks or shutdown. This is not hosted-CI or all-filesystem acceptance.
 2. **Persistence integrity: passed locally.** K23/K27 regressions cover invalid saved relationships, backup preservation on failed save and recent bookkeeping/core outcome separation. No saved-schema migration was needed.
-3. **User-visible recovery:** K17/K30 modal/input integrity passed locally. K24 import outcomes now have bounded operation status, explicit reconciliation and focused passing lifecycle/UI regressions; unknown attempts are never blindly retried. K18/K19 plus remaining K24/K26/K32 work remain: export retry states, close failure, media-event loss and preview cuts/end/errors. Do not describe all editor errors as covered by the launcher's catalog.
+3. **User-visible recovery:** K17/K30 modal/input integrity passed locally. K24 import outcomes have bounded operation status and explicit reconciliation; proxy state now refreshes from the authoritative engine snapshot on connect/reconnect/focus with a manual refresh, offline-media refresh failures have visible retry controls, and preview play/decode errors stop retry loops and offer explicit recovery. K32 clip-boundary handling is already verified locally. K26 proxy-job failures now receive safe diagnostic IDs surfaced with the preview-failure badge. Remaining K18/K19/K24/K26 work includes export retry states, close failure, broader media-refresh/mutation recovery and other background-error integration. Focused regressions passed locally; do not describe all editor errors as covered by the launcher's catalog.
 4. **Finish diagnostics scope:** K29 then K21 in-app nonblocking alerts, periodic checks, usage/target/protected reporting and Open logs / Preview cleanup / Retry. Reuse the verified retention policy rather than duplicating deletion logic. Decide alert interval/deduplication and drive scope before implementation.
 5. **Preserve a reviewed baseline:** approved commit/push, hosted JS/vision/Windows checks and any pending manual acceptance. Never commit or publish as a side effect of a review.
 6. **M3-A:** serialized client planning/history and Undo/Redo (K12); then M3-B gesture/save strategy (K13), then M3-C relink/tracks with a defined preview/export media contract.

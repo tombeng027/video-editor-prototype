@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SIZES, LIMITS, clampSize, loadSizes, saveSizes } from "./layout.js";
+import { DEFAULT_SIZES, LIMITS, clampSize, fitPaneWidths, loadSizes, saveSizes } from "./layout.js";
 import { fetchHealth, resolveEngineConfig } from "./engine.js";
 
 const memory = (initial?: string) => {
@@ -27,7 +27,7 @@ describe("layout persistence", () => {
 
   it("round-trips saved sizes", () => {
     const store = memory();
-    const sizes = { assetsWidth: 300, assistantWidth: 400, timelineHeight: 350, assistantOpen: false };
+    const sizes = { assetsWidth: 300, assistantWidth: 400, propertiesWidth: 320, timelineHeight: 350, assistantOpen: false };
     saveSizes(store, sizes);
     expect(loadSizes(store)).toEqual(sizes);
   });
@@ -35,6 +35,24 @@ describe("layout persistence", () => {
   it("clamps drag results", () => {
     expect(clampSize("assistantWidth", 10)).toBe(LIMITS.assistantWidth.min);
     expect(clampSize("assistantWidth", 300.4)).toBe(300);
+    expect(clampSize("propertiesWidth", 999)).toBe(LIMITS.propertiesWidth.max);
+  });
+
+  it("adds a default properties width to existing layouts without losing assistant preferences", () => {
+    const loaded = loadSizes(memory(JSON.stringify({ assetsWidth: 300, assistantWidth: 400, assistantOpen: false })));
+    expect(loaded).toMatchObject({ assetsWidth: 300, assistantWidth: 400, assistantOpen: false, propertiesWidth: DEFAULT_SIZES.propertiesWidth });
+  });
+
+  it("shares space with the assistant without collapsing Preview or overwriting preferred sizes", () => {
+    const fitted = fitPaneWidths(DEFAULT_SIZES, 900);
+    expect(fitted.assetsWidth + fitted.propertiesWidth + fitted.assistantWidth + 18 + 200).toBeLessThanOrEqual(900);
+    expect(fitted.propertiesWidth).toBeGreaterThanOrEqual(LIMITS.propertiesWidth.min);
+    expect(fitted.assistantWidth).toBeGreaterThanOrEqual(LIMITS.assistantWidth.min);
+    expect(fitPaneWidths(DEFAULT_SIZES, 1600)).toEqual({
+      assetsWidth: DEFAULT_SIZES.assetsWidth, propertiesWidth: DEFAULT_SIZES.propertiesWidth, assistantWidth: DEFAULT_SIZES.assistantWidth,
+    });
+    expect(fitPaneWidths({ ...DEFAULT_SIZES, assistantOpen: false }, 900).propertiesWidth).toBe(DEFAULT_SIZES.propertiesWidth);
+    expect(DEFAULT_SIZES.propertiesWidth).toBe(280);
   });
 });
 

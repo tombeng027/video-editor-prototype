@@ -61,6 +61,11 @@ export class PlayheadClock {
     this.emitTick();
   }
 
+  stepFrame(direction: -1 | 1): void {
+    this.pause();
+    this.seek(Math.min(this.frame + direction, Math.max(0, this.duration - 1)));
+  }
+
   play(): void {
     if (this.isPlaying || this.duration <= 0) return;
     if (this.pos >= this.duration) this.pos = 0;

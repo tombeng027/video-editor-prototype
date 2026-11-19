@@ -38,6 +38,39 @@ function Measure-LogStorage([string]$Path) {
   return [pscustomobject]@{ bytes = $bytes; complete = $complete }
 }
 
+function Write-AtomicSessionMetadata([string]$Path, $Metadata) {
+  $suffix = [guid]::NewGuid().ToString("N")
+  $directory = Split-Path -Parent $Path
+  $temporary = Join-Path $directory (".session-" + $suffix + ".tmp")
+  $backup = Join-Path $directory (".session-" + $suffix + ".bak")
+  $stream = $null
+  try {
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($Metadata | ConvertTo-Json -Depth 16))
+    $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Flush($true)
+    $stream.Dispose()
+    $stream = $null
+    [IO.File]::Replace($temporary, $Path, $backup)
+    Remove-Item -LiteralPath $backup -Force -ErrorAction Stop
+  } finally {
+    if ($stream) { $stream.Dispose() }
+    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+  }
+}
+
+function Get-LogStorageUsage([string]$SessionsPath) {
+  $sessionUsage = if (Test-Path $SessionsPath) { Measure-LogStorage $SessionsPath } else { [pscustomobject]@{ bytes = 0L; complete = $true } }
+  $legacyBytes = 0L
+  $complete = $sessionUsage.complete
+  foreach ($file in @(Get-ChildItem -LiteralPath $logs -Force -File -ErrorAction Stop | Where-Object { $_.Extension -in @(".log", ".err", ".jsonl") })) {
+    $usage = Measure-LogStorage $file.FullName
+    $legacyBytes += $usage.bytes
+    if (-not $usage.complete) { $complete = $false }
+  }
+  return [pscustomobject]@{ bytes = [long]($sessionUsage.bytes + $legacyBytes); legacyBytes = $legacyBytes; complete = $complete }
+}
+
 function Invoke-LogCleanup([switch]$DryRun) {
   $policy = Read-LogPolicy
   $sessions = Join-Path $logs "sessions"
@@ -53,7 +86,11 @@ function Invoke-LogCleanup([switch]$DryRun) {
     try {
       if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "directory link" }
       $files = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
-      if (@($files | Where-Object { $_.PSIsContainer -or $_.Name -notin $allowed -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }).Count) {
+      if (@($files | Where-Object {
+        $_.PSIsContainer -or
+        ($_.Name -notin $allowed -and $_.Name -notmatch '^\.session-[0-9a-f]{32}\.(tmp|bak)$') -or
+        ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+      }).Count) {
         throw "unexpected file, directory or link"
       }
       $meta = Get-Content (Join-Path $directory.FullName "session.json") -Raw -ErrorAction Stop | ConvertFrom-Json
@@ -72,7 +109,7 @@ function Invoke-LogCleanup([switch]$DryRun) {
           $closed = [datetime]::UtcNow
           if (-not $DryRun) {
             $meta.closedAt = $closed.ToString("o")
-            $meta | ConvertTo-Json -Depth 16 | Set-Content (Join-Path $directory.FullName "session.json") -Encoding UTF8
+            Write-AtomicSessionMetadata (Join-Path $directory.FullName "session.json") $meta
           }
         }
       }
@@ -86,19 +123,16 @@ function Invoke-LogCleanup([switch]$DryRun) {
     }
   }
   $recent = @($entries | Where-Object { $_.closed } | Sort-Object closed -Descending | Select-Object -First $policy.keepRecentSessions)
-  $sessionUsage = if (Test-Path $sessions) { Measure-LogStorage $sessions } else { [pscustomobject]@{ bytes = 0L; complete = $true } }
-  if (-not $sessionUsage.complete) { $usageComplete = $false }
-  $legacyBytes = 0L
-  foreach ($file in @(Get-ChildItem -LiteralPath $logs -Force -File -ErrorAction Stop | Where-Object { $_.Extension -in @(".log", ".err", ".jsonl") })) {
-    $usage = Measure-LogStorage $file.FullName
-    $legacyBytes += $usage.bytes
-    if (-not $usage.complete) { $usageComplete = $false }
-  }
-  $total = $legacyBytes + $sessionUsage.bytes
-  $eligibleBytes = [long](($entries | Where-Object { -not $_.protected -and $_.closed -and $_ -notin $recent } | Measure-Object bytes -Sum).Sum)
+  $initialUsage = Get-LogStorageUsage $sessions
+  if (-not $initialUsage.complete) { $usageComplete = $false }
+  $legacyBytes = $initialUsage.legacyBytes
+  $total = $initialUsage.bytes
+  $eligible = @($entries | Where-Object { -not $_.protected -and $_.closed -and $_ -notin $recent })
+  $eligibleBytes = [long](($eligible | Measure-Object bytes -Sum).Sum)
   $protectedBytes = $total - $eligibleBytes
   $deleted = @()
-  foreach ($entry in @($entries | Where-Object { -not $_.protected -and $_.closed -and $_ -notin $recent } | Sort-Object closed)) {
+  $failed = @()
+  foreach ($entry in @($eligible | Sort-Object closed)) {
     if (-not $policy.enabled) { break }
     if ($entry.closed -gt [datetime]::UtcNow.AddDays(-$policy.retentionDays) -and $total -le $policy.maxTotalMB * 1MB) { continue }
     if ($DryRun) {
@@ -107,21 +141,31 @@ function Invoke-LogCleanup([switch]$DryRun) {
       continue
     }
     # The caller holds the launcher lock; closed sessions have no recorded live writers.
+    $handles = @()
     try {
       foreach ($file in $entry.files) {
-        $handle = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
-        $handle.Dispose()
+        $handles += [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete)
       }
-      foreach ($file in $entry.files) { Remove-Item -LiteralPath $file.FullName -ErrorAction Stop }
+      foreach ($file in @($entry.files | Where-Object { $_.Name -ne "session.json" })) {
+        Remove-Item -LiteralPath $file.FullName -ErrorAction Stop
+      }
+      $metadata = @($entry.files | Where-Object { $_.Name -eq "session.json" })
+      if ($metadata.Count -ne 1) { throw "Session metadata is missing or ambiguous." }
+      Remove-Item -LiteralPath $metadata[0].FullName -ErrorAction Stop
       Remove-Item -LiteralPath $entry.directory -ErrorAction Stop
       $deleted += $entry.directory
-      $total -= $entry.bytes
-    } catch { $warnings += "[LOG_CLEANUP_INCOMPLETE] Could not remove $($entry.directory): $($_.Exception.Message)" }
+    } catch {
+      $failed += $entry.directory
+      $warnings += "[LOG_CLEANUP_INCOMPLETE] Could not remove $($entry.directory): $($_.Exception.Message)"
+    } finally {
+      foreach ($handle in $handles) { $handle.Dispose() }
+    }
   }
+  $actualUsage = Get-LogStorageUsage $sessions
   $drive = Get-PSDrive -Name ([IO.Path]::GetPathRoot($logs).Substring(0, 1))
-  if (-not $usageComplete) { $warnings += "[LOG_CLEANUP_SKIPPED] Some storage could not be measured without following links or reading inaccessible paths; usage is a lower bound." }
-  if ($total -gt $policy.maxTotalMB * 1MB) {
-    $warnings += "[LOG_STORAGE_LIMIT_EXCEEDED] Logs use at least $([math]::Round($total / 1MB, 1)) MB; target is $($policy.maxTotalMB) MB. Active, preserved, unknown and recent sessions are not deleted. Review logs or change retention."
+  if (-not $usageComplete -or -not $actualUsage.complete) { $warnings += "[LOG_CLEANUP_SKIPPED] Some storage could not be measured without following links or reading inaccessible paths; usage is a lower bound." }
+  if ($actualUsage.bytes -gt $policy.maxTotalMB * 1MB) {
+    $warnings += "[LOG_STORAGE_LIMIT_EXCEEDED] Logs use at least $([math]::Round($actualUsage.bytes / 1MB, 1)) MB; target is $($policy.maxTotalMB) MB. Active, preserved, unknown and recent sessions are not deleted. Review logs or change retention."
   }
   if ($drive.Free -lt $policy.minFreeDiskMB * 1MB) {
     $warnings += "[DISK_SPACE_LOW] Log-storage drive has $([math]::Round($drive.Free / 1MB)) MB free. Free disk space; log cleanup alone may not suffice."
@@ -130,7 +174,54 @@ function Invoke-LogCleanup([switch]$DryRun) {
     $separator = $warning.IndexOf("]")
     Write-LauncherWarning $warning.Substring(1, $separator - 1) $warning.Substring($separator + 2)
   }
-  return [pscustomobject]@{ dryRun = [bool]$DryRun; remainingBytes = $total; protectedBytes = $protectedBytes; legacyBytes = $legacyBytes; usageComplete = $usageComplete; selectedSessions = $deleted; warnings = $warnings }
+  $actualUsage = Get-LogStorageUsage $sessions
+  if (-not $actualUsage.complete -and @($warnings | Where-Object { $_.StartsWith("[LOG_CLEANUP_SKIPPED] Some storage could not be measured") }).Count -eq 0) {
+    $warning = "[LOG_CLEANUP_SKIPPED] Some storage could not be measured without following links or reading inaccessible paths; usage is a lower bound."
+    $warnings += $warning
+    Write-LauncherWarning "LOG_CLEANUP_SKIPPED" $warning.Substring($warning.IndexOf("]") + 2)
+    $actualUsage = Get-LogStorageUsage $sessions
+  }
+  if ($actualUsage.bytes -gt $policy.maxTotalMB * 1MB -and @($warnings | Where-Object { $_.StartsWith("[LOG_STORAGE_LIMIT_EXCEEDED]") }).Count -eq 0) {
+    $warning = "[LOG_STORAGE_LIMIT_EXCEEDED] Logs use at least $([math]::Round($actualUsage.bytes / 1MB, 1)) MB; target is $($policy.maxTotalMB) MB. Active, preserved, unknown and recent sessions are not deleted. Review logs or change retention."
+    $warnings += $warning
+    Write-LauncherWarning "LOG_STORAGE_LIMIT_EXCEEDED" $warning.Substring($warning.IndexOf("]") + 2)
+    $actualUsage = Get-LogStorageUsage $sessions
+  }
+  $usageComplete = $usageComplete -and $actualUsage.complete
+  $reportedLegacyBytes = $actualUsage.legacyBytes
+  if ($DryRun) {
+    $selectedBytes = [long](($eligible | Where-Object { $_.directory -in $deleted } | Measure-Object bytes -Sum).Sum)
+    $remainingBytes = $actualUsage.bytes - $selectedBytes
+    $protectedBytes = $actualUsage.bytes - $eligibleBytes
+  } else {
+    $remainingBytes = $actualUsage.bytes
+    $eligibleRemainingBytes = 0L
+    foreach ($entry in $eligible) {
+      if (Test-Path -LiteralPath $entry.directory) {
+        $usage = Measure-LogStorage $entry.directory
+        $eligibleRemainingBytes += $usage.bytes
+        if (-not $usage.complete) { $usageComplete = $false }
+      }
+    }
+    $protectedBytes = $remainingBytes - $eligibleRemainingBytes
+  }
+  $incomplete = -not $usageComplete -or @($warnings | Where-Object {
+    $_.StartsWith("[LOG_CLEANUP_INCOMPLETE]") -or $_.StartsWith("[LOG_CLEANUP_SKIPPED]")
+  }).Count -gt 0
+  $status = if ($failed.Count -gt 0 -and $deleted.Count -eq 0) { "failed" } elseif ($incomplete) { "partial" } else { "completed" }
+  $exitCode = if ($status -eq "completed") { 0 } elseif ($status -eq "failed") { 1 } else { 2 }
+  return [pscustomobject]@{
+    status = $status
+    exitCode = $exitCode
+    dryRun = [bool]$DryRun
+    remainingBytes = $remainingBytes
+    protectedBytes = $protectedBytes
+    legacyBytes = $reportedLegacyBytes
+    usageComplete = $usageComplete
+    selectedSessions = $deleted
+    failedSessions = $failed
+    warnings = $warnings
+  }
 }
 
 function Initialize-LogSession {

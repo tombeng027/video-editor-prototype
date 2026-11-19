@@ -21,6 +21,11 @@ export function StatusArea({ result }: { result: HealthResult | null }) {
         >
           <span className={`dot ${c.status === "ok" ? "ok" : c.status === "unknown" ? "unknown" : "bad"}`} />
           {LABELS[c.name]}
+          {c.status !== "ok" && (c.detail || c.hint) && (
+            <span className={`status-detail${c.status === "unavailable" ? " bad" : ""}`} aria-label={`${LABELS[c.name]} status details`}>
+              {[c.detail, c.hint].filter(Boolean).join(" - ")}
+            </span>
+          )}
         </span>
       ))}
     </div>

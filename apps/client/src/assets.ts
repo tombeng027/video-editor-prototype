@@ -1,7 +1,10 @@
 import type { Asset, ProxyState } from "@ve/schema";
 
-export function assetSeconds(asset: Pick<Asset, "durationFrames" | "fps">): number {
-  return asset.fps ? (asset.durationFrames * asset.fps.den) / asset.fps.num : 0;
+export const ASSET_DRAG_TYPE = "application/x-video-editor-asset";
+
+export function assetSeconds(asset: Pick<Asset, "durationFrames" | "fps">, projectFps?: { num: number; den: number }): number {
+  const fps = asset.fps ?? projectFps;
+  return fps ? (asset.durationFrames * fps.den) / fps.num : 0;
 }
 
 export function formatDuration(seconds: number): string {
@@ -19,13 +22,14 @@ export function formatFps(fps: Asset["fps"]): string {
   return `${Number.isInteger(value) ? value : value.toFixed(3).replace(/0+$/, "")} fps`;
 }
 
-export type ProxyBadge = { label: string; tone: "ok" | "busy" | "error" | "none" };
+export type ProxyBadge = { label: string; tone: "ok" | "busy" | "error" | "neutral" | "none" };
 
 export function proxyBadge(asset: Asset, state: ProxyState | undefined): ProxyBadge {
   if (asset.kind !== "video") return { label: "", tone: "none" };
-  if (state?.state === "failed") return { label: "Preview failed", tone: "error" };
-  if (state?.state === "running") return { label: `Preparing preview ${state.percent}%`, tone: "busy" };
-  if (state?.state === "queued") return { label: "Preview queued", tone: "busy" };
+  if (state?.state === "failed") return { label: "Optimization failed", tone: "error" };
+  if (state?.state === "running") return { label: `Optimizing preview ${state.percent}%`, tone: "busy" };
+  if (state?.state === "queued") return { label: "Optimization queued", tone: "busy" };
   if (asset.proxyPath) return { label: "Preview ready", tone: "ok" };
-  return { label: "Preparing preview", tone: "busy" };
+  if (state?.state === "cancelled") return { label: "Optimization cancelled", tone: "neutral" };
+  return { label: "Original preview", tone: "none" };
 }

@@ -1,13 +1,29 @@
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiErrorSchema } from "@ve/schema";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { reportDiagnostic } from "./diagnostics.js";
+import { closeDiagnosticSink, configureDiagnosticSink, reportDiagnostic } from "./diagnostics.js";
+import { DiagnosticStore } from "./diagnosticStore.js";
 
 let app: FastifyInstance | undefined;
-afterEach(async () => { await app?.close(); app = undefined; vi.restoreAllMocks(); });
+const tempDirs: string[] = [];
+afterEach(async () => {
+  await app?.close();
+  app = undefined;
+  closeDiagnosticSink();
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const tempDir = () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "ve-diagnostics-"));
+  tempDirs.push(dir);
+  return dir;
+};
 
 describe("safe engine diagnostics", () => {
   it("logs one correlated record using only a registered route template and allowlisted causes", async () => {
@@ -61,5 +77,66 @@ describe("safe engine diagnostics", () => {
     expect(result.json().error.code).toBe("INVALID_REQUEST");
     expect(result.body).not.toContain("private");
     expect(log).not.toHaveBeenCalled();
+  });
+
+  it("persists only structured diagnostics while retaining stderr output", () => {
+    const dataDir = tempDir();
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    configureDiagnosticSink(dataDir);
+    const id = reportDiagnostic("PROJECT_OPERATION_FAILED", new Error("private C:\\media\\clip.mp4"), {
+      method: "POST",
+      route: "/project/create",
+    });
+    const folder = path.join(dataDir, "diagnostics");
+    const [file] = readdirSync(folder);
+    expect(file).toMatch(/^engine-.*\.0\.jsonl$/);
+    const line = readFileSync(path.join(folder, file!), "utf8");
+    expect(JSON.parse(line)).toMatchObject({
+      code: "PROJECT_OPERATION_FAILED",
+      diagnosticId: id,
+      method: "POST",
+      route: "/project/create",
+    });
+    expect(line).not.toContain("private");
+    expect(line).not.toContain("C:\\media");
+    expect(log).toHaveBeenCalledOnce();
+    expect(String(log.mock.calls[0]![0])).toBe(line.trim());
+  });
+
+  it("rotates diagnostics at the file limit and retains only the configured run files", () => {
+    const dataDir = tempDir();
+    const store = new DiagnosticStore(dataDir);
+    const record = JSON.stringify({ code: "ENGINE_UNEXPECTED_ERROR", padding: "x".repeat(900 * 1024) });
+    for (let i = 0; i < 4; i++) store.append(record);
+    const files = readdirSync(path.join(dataDir, "diagnostics"));
+    expect(files).toHaveLength(3);
+    expect(files.every((file) => readFileSync(path.join(dataDir, "diagnostics", file), "utf8").length <= 1024 * 1024)).toBe(true);
+    expect(files.some((file) => file.endsWith(".0.jsonl"))).toBe(true);
+    expect(readFileSync(path.join(dataDir, "diagnostics", files.find((file) => file.endsWith(".0.jsonl"))!), "utf8"))
+      .toContain(record);
+  });
+
+  it("prunes old inactive engine runs but preserves current-run diagnostics", () => {
+    const dataDir = tempDir();
+    const folder = path.join(dataDir, "diagnostics");
+    mkdirSync(folder);
+    const old = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString().replace(/[-:.]/g, "");
+    const oldFile = `engine-${old}-2147483647-00000000-0000-4000-8000-000000000001.0.jsonl`;
+    writeFileSync(path.join(folder, oldFile), "{\"code\":\"old\"}\n");
+    const store = new DiagnosticStore(dataDir);
+    store.append("{\"code\":\"current\"}");
+    const files = readdirSync(folder);
+    expect(files).not.toContain(oldFile);
+    expect(files.some((file) => file.endsWith(".0.jsonl") && file !== oldFile)).toBe(true);
+  });
+
+  it("keeps diagnostic reporting operational when the local sink cannot initialize", () => {
+    const dataDir = tempDir();
+    writeFileSync(path.join(dataDir, "not-a-directory"), "fixture");
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    configureDiagnosticSink(path.join(dataDir, "not-a-directory"));
+    expect(() => reportDiagnostic("PROJECT_OPERATION_FAILED", new Error("private"))).not.toThrow();
+    expect(log).toHaveBeenCalledOnce();
+    expect(String(log.mock.calls[0]![0])).not.toContain("private");
   });
 });

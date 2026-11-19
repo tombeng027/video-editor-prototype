@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandSchema } from "./commands.js";
 import { ProjectSchema, RationalSchema } from "./project.js";
+import { ExportSettingsSchema, ResolvedExportSettingsSchema } from "./exportSettings.js";
 
 export const ComponentStatusSchema = z.object({
   name: z.enum(["engine", "ffmpeg", "ollama", "vision"]),
@@ -19,6 +20,7 @@ export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
 export const ApiErrorSchema = z.object({
   error: z.object({ code: z.string(), message: z.string(), diagnosticId: z.uuid().optional() }),
+  outcome: z.literal("not-applied").optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
@@ -59,7 +61,7 @@ export const ProjectOperationSchema = z.discriminatedUnion("state", [
 ]);
 export type ProjectOperation = z.infer<typeof ProjectOperationSchema>;
 
-export const CommandsRequestSchema = z.object({ commands: z.array(CommandSchema).min(1) });
+export const CommandsRequestSchema = z.object({ attemptId: z.uuid().optional(), commands: z.array(CommandSchema).min(1) });
 export type CommandsRequest = z.infer<typeof CommandsRequestSchema>;
 
 export const CommandsResponseSchema = z.object({
@@ -67,6 +69,14 @@ export const CommandsResponseSchema = z.object({
   inverse: z.array(CommandSchema),
 });
 export type CommandsResponse = z.infer<typeof CommandsResponseSchema>;
+
+export const CommandOperationSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("pending"), attemptId: z.uuid() }),
+  z.object({ state: z.literal("done"), attemptId: z.uuid(), response: CommandsResponseSchema }),
+  z.object({ state: z.literal("failed"), attemptId: z.uuid(), error: ApiErrorSchema.shape.error }),
+  z.object({ state: z.literal("unknown"), attemptId: z.uuid(), error: ApiErrorSchema.shape.error }),
+]);
+export type CommandOperation = z.infer<typeof CommandOperationSchema>;
 
 export const RecentProjectSchema = z.object({
   folder: z.string(),
@@ -90,7 +100,7 @@ export type ImportRequest = z.infer<typeof ImportRequestSchema>;
 export const ImportResponseSchema = z.object({
   project: ProjectSchema,
   imported: z.array(z.object({ assetId: z.string(), name: z.string() })),
-  failed: z.array(z.object({ path: z.string(), code: z.string(), message: z.string() })),
+  failed: z.array(z.object({ path: z.string(), code: z.string(), message: z.string(), diagnosticId: z.uuid().optional() })),
 });
 export type ImportResponse = z.infer<typeof ImportResponseSchema>;
 
@@ -104,28 +114,40 @@ export type ImportOperation = z.infer<typeof ImportOperationSchema>;
 
 export const ProxyStateSchema = z.object({
   assetId: z.string(),
-  state: z.enum(["queued", "running", "done", "failed"]),
+  state: z.enum(["queued", "running", "done", "failed", "cancelled"]),
   percent: z.number().min(0).max(100),
   message: z.string().optional(),
+  diagnosticId: z.uuid().optional(),
 });
 export type ProxyState = z.infer<typeof ProxyStateSchema>;
+export const PreviewJobRequestSchema = z.object({
+  assetId: z.string().min(1),
+  action: z.enum(["prepare", "cancel"]),
+  expectedProject: z.object({ id: z.string().min(1), folder: z.string().min(1) }),
+});
+export type PreviewJobRequest = z.infer<typeof PreviewJobRequestSchema>;
 
 export const ProxyListResponseSchema = z.object({ proxies: z.array(ProxyStateSchema) });
 export type ProxyListResponse = z.infer<typeof ProxyListResponseSchema>;
 export const OfflineAssetSchema = z.object({ assetId: z.string(), name: z.string(), path: z.string() });
 export type OfflineAsset = z.infer<typeof OfflineAssetSchema>;
 
-export const MediaStatusResponseSchema = z.object({ offline: z.array(OfflineAssetSchema) });
+export const MediaStatusResponseSchema = z.object({ projectId: z.string().min(1), offline: z.array(OfflineAssetSchema) });
 export type MediaStatusResponse = z.infer<typeof MediaStatusResponseSchema>;
 
-export const StartExportRequestSchema = z.object({ attemptId: z.uuid().optional() });
+export const StartExportRequestSchema = z.strictObject({
+  attemptId: z.uuid().optional(),
+  settings: ExportSettingsSchema.optional(),
+});
 
 export const ExportStateSchema = z.object({
   attemptId: z.uuid().optional(),
+  settings: ResolvedExportSettingsSchema.optional(),
   state: z.enum(["idle", "running", "done", "failed", "cancelled"]),
   percent: z.number().min(0).max(100),
   outputPath: z.string().optional(),
   code: z.string().optional(),
   message: z.string().optional(),
+  diagnosticId: z.uuid().optional(),
 });
 export type ExportState = z.infer<typeof ExportStateSchema>;

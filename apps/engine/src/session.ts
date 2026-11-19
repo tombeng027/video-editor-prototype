@@ -1,4 +1,6 @@
 import path from "node:path";
+import { stat } from "node:fs/promises";
+import { quickHash } from "./media.js";
 import {
   applyCommands,
   createEmptyProject,
@@ -99,10 +101,14 @@ export class ProjectSession {
   openFolder(rawFolder: string): Promise<ProjectResponse> {
     return this.run(async () => {
       const folder = ProjectSession.resolveFolder(rawFolder);
-      const { project, recoveredFromBackup } = await readProject(folder);
+      const { project, recoveredFromBackup, migratedFromVersion } = await readProject(folder);
       this.current = { folder, project, recoveredFromBackup };
       this.generation++;
       this.current.warnings = await this.updateRecent(folder, project.name);
+      if (migratedFromVersion !== undefined) this.current.warnings = [...(this.current.warnings ?? []), {
+        code: "PROJECT_MIGRATED",
+        message: "Loaded a version-1 project using the version-2 format in memory. Opening did not rewrite project files; subsequent saves use version 2. Keep a separate copy before using older app builds, which are not safe for version-2 projects or captions.",
+      }];
       return { ...this.current };
     });
   }
@@ -112,7 +118,31 @@ export class ProjectSession {
     return this.run(async () => {
       if (version !== undefined) this.assertVersion(version);
       const { folder, project } = this.require();
-      const result = applyCommands(project, typeof commands === "function" ? commands(project) : commands);
+      const batch = typeof commands === "function" ? commands(project) : commands;
+      for (const command of batch) {
+        if (command.type !== "RelinkAsset") continue;
+        const asset = project.assets.find((candidate) => candidate.id === command.assetId);
+        if (!asset) return { ok: false, error: { code: "NOT_FOUND", message: "Asset not found." } };
+        if (!path.isAbsolute(command.sourcePath)) {
+          return { ok: false, error: { code: "RELINK_INVALID_FILE", message: "Choose an absolute path to the original media file." } };
+        }
+        try {
+          const stats = await stat(command.sourcePath);
+          if (!stats.isFile()) {
+            return { ok: false, error: { code: "RELINK_INVALID_FILE", message: "The replacement path is not a file." } };
+          }
+          if (await quickHash(command.sourcePath) !== asset.contentHash) {
+            return { ok: false, error: { code: "RELINK_MISMATCH", message: "The replacement does not match the imported media fingerprint. Choose the original file, not a different edit or encode." } };
+          }
+        } catch (error) {
+          if (error instanceof Error && "code" in error &&
+            ["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(String(error.code))) {
+            return { ok: false, error: { code: "RELINK_INVALID_FILE", message: `The replacement file cannot be read (${error.code}). Check its location and permissions.` } };
+          }
+          throw error;
+        }
+      }
+      const result = applyCommands(project, batch);
       if (!result.ok) return result;
       const next = { ...result.project, updatedAt: new Date().toISOString() };
       await writeProject(folder, next);

@@ -63,9 +63,9 @@ video-editor/
 
 ## State ownership
 
-- **Implemented:** the client holds the last engine-returned project and plans command batches; the engine applies the reducer and saves before returning the updated project. Client undo/redo and reconnect recovery are not implemented.
+- **Implemented:** the client holds the last engine-returned project and plans command batches; the engine applies the reducer and saves before returning the updated project. Command-outcome recovery checks correlated status after an ambiguous response; undo/redo and durable mutation history are not implemented.
 - **Planned:** serialize edits, build history from returned inverses, and handle reconnection explicitly in M3. Optimistic local reduction is optional future work, not current behavior.
-- **Current implementation (M2 Slice A):** the engine owns the single open project and applies each command batch (`POST /project/commands`), autosaving and returning the project plus inverse commands. Since Slice B step 2 the client adopts that response without local reduction. The engine is authoritative, but async ordering, stale client state and mutation uncertainty still require K12/K24 recovery work. Default-local command/save latency has not been benchmarked. Optimistic reduction stays a future option if M3 drag editing needs it.
+- **Current implementation (M2 Slice A):** the engine owns the single open project and applies each command batch (`POST /project/commands`), autosaving and returning the project plus inverse commands. Since Slice B step 2 the client adopts that response without local reduction. The engine is authoritative, but async ordering and stale client state remain; ambiguous command outcomes have bounded K24 recovery. Default-local command/save latency has not been benchmarked. Optimistic reduction stays a future option if M3 drag editing needs it.
 - **Planned M5-M6:** AI confirmations dispatch commands through this same path; `InsertSequence` is not implemented.
 
 ## Media tools
@@ -93,6 +93,6 @@ video-editor/
 
 ## Cross-cutting rules
 
-- Project/API payloads use shared schemas and persistence adds relational checks. Complete boundary error handling is not guaranteed: malformed SSE JSON and client recovery remain K24 work.
+- Project/API payloads use shared schemas and persistence adds relational checks. Proxy SSE rejects malformed events, preserves last-known status on failed reconciliation and refreshes from an authoritative snapshot after reconnect; this is locally covered, not a guarantee of uninterrupted event delivery.
 - Jobs currently have separate proxy/export schemas. A unified job model is a future design option, not an implemented abstraction.
 - Errors are typed and carry a user-readable message.

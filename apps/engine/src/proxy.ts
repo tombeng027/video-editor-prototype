@@ -1,6 +1,7 @@
 import { rename, rm } from "node:fs/promises";
 import type { ProxyState, Rational } from "@ve/schema";
 import { runFfmpeg } from "./ffmpegRun.js";
+import { reportDiagnostic } from "./diagnostics.js";
 
 export type ProxyJob = {
   assetId: string;
@@ -59,6 +60,9 @@ export class ProxyManager {
   private states = new Map<string, ProxyState>();
   private queue: ProxyJob[] = [];
   private active: AbortController | null = null;
+  private activeJob: ProxyJob | null = null;
+  private committing = false;
+  private cancellation: Promise<void> | null = null;
   private generation = 0;
   private listeners = new Set<(state: ProxyState) => void>();
 
@@ -89,6 +93,19 @@ export class ProxyManager {
     void this.pump();
   }
 
+  /** Cancellation is settled before callers may retry the same output path. */
+  async cancel(assetId: string): Promise<void> {
+    const queued = this.queue.find((job) => job.assetId === assetId);
+    if (queued) {
+      this.queue = this.queue.filter((job) => job !== queued);
+      this.set({ assetId, state: "cancelled", percent: 0 });
+    }
+    if (this.activeJob?.assetId !== assetId) return;
+    if (!this.committing) this.active?.abort();
+    const settled = this.cancellation;
+    if (settled) await settled;
+  }
+
   /** Cancels running work and forgets all state; used when the project changes. */
   reset() {
     this.generation++;
@@ -109,6 +126,10 @@ export class ProxyManager {
     const generation = this.generation;
     const controller = new AbortController();
     this.active = controller;
+    this.activeJob = job;
+    this.committing = false;
+    let settle!: () => void;
+    this.cancellation = new Promise<void>((resolve) => { settle = resolve; });
     const part = `${job.outFile}.part`;
     this.set({ assetId: job.assetId, state: "running", percent: 0 });
     let published = false;
@@ -121,13 +142,14 @@ export class ProxyManager {
         signal: controller.signal,
         onProgress: (fraction) => {
           const percent = Math.floor(fraction * 100);
-          if (percent !== last && generation === this.generation) {
+          if (percent !== last && generation === this.generation && !controller.signal.aborted) {
             last = percent;
             this.set({ assetId: job.assetId, state: "running", percent });
           }
         },
       });
-      if (generation !== this.generation) throw new Error("cancelled");
+      if (generation !== this.generation || controller.signal.aborted) throw new Error("cancelled");
+      this.committing = true;
       await rename(part, job.outFile);
       published = true;
       if (generation !== this.generation) throw new Error("cancelled");
@@ -136,23 +158,32 @@ export class ProxyManager {
       this.set({ assetId: job.assetId, state: "done", percent: 100 });
     } catch (e) {
       let message = e instanceof Error ? e.message : "Proxy generation failed.";
+      let diagnosticId: string | undefined;
       for (const file of published ? [part, job.outFile] : [part]) {
         try { await rm(file, { force: true }); }
         catch (cleanupError) {
           message += ` Proxy cleanup failed (${file}): ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
-          console.error(message);
+          diagnosticId = reportDiagnostic("BACKGROUND_JOB_FAILED", cleanupError, { route: "proxy cleanup" });
         }
       }
-      if (generation === this.generation) {
+      if (generation === this.generation && controller.signal.aborted && !diagnosticId) {
+        this.set({ assetId: job.assetId, state: "cancelled", percent: 0 });
+      } else if (generation === this.generation) {
+        diagnosticId ??= reportDiagnostic("BACKGROUND_JOB_FAILED", e, { route: "proxy generation" });
         this.set({
           assetId: job.assetId,
           state: "failed",
           percent: 0,
           message,
+          diagnosticId,
         });
       }
     } finally {
       this.active = null;
+      this.activeJob = null;
+      this.cancellation = null;
+      this.committing = false;
+      settle();
       void this.pump();
     }
   }

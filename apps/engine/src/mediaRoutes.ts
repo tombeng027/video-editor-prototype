@@ -4,12 +4,13 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { randomUUID } from "node:crypto";
-import { ImportRequestSchema, type ApiError, type ImportOperation, type ProxyState } from "@ve/schema";
+import { ImportRequestSchema, PreviewJobRequestSchema, type ApiError, type ImportOperation, type ProxyState } from "@ve/schema";
 import { z } from "zod";
-import { Importer, ImportError } from "./importer.js";
+import { Importer, ImportError, resolveAssetPath } from "./importer.js";
 import type { ProxyManager } from "./proxy.js";
 import { SessionError, type ProjectSession } from "./session.js";
 import { reportDiagnostic } from "./diagnostics.js";
+import { MediaError } from "./media.js";
 
 const apiError = (code: string, message: string): ApiError => ({ error: { code, message } });
 
@@ -98,7 +99,7 @@ export function registerMediaRoutes(
     }
     const operation = operations.get(req.params.attemptId);
     if (!operation) {
-      return reply.code(404).send(apiError("IMPORT_OUTCOME_UNKNOWN",
+      return reply.code(404).send(apiError("IMPORT_RECEIPT_MISSING",
         "This import attempt is not recorded. It may not have arrived, been evicted, or the engine restarted; inspect the current project before retrying."));
     }
     try { session.assertVersion(operation.version); }
@@ -115,6 +116,29 @@ export function registerMediaRoutes(
   });
 
   app.get("/project/proxies", async () => ({ proxies: proxies.list() }));
+  app.post("/project/preview-jobs", async (req, reply) => {
+    const parsed = PreviewJobRequestSchema.safeParse(req.body);
+    if (!parsed.success) return invalid(reply, "Provide an asset, prepare/cancel action and expected project.");
+    const { assetId, action, expectedProject } = parsed.data;
+    const version = session.version;
+    const open = session.open;
+    if (!open || !path.isAbsolute(expectedProject.folder) || open.project.id !== expectedProject.id || open.folder !== path.resolve(expectedProject.folder)) {
+      return reply.code(409).send(apiError("PROJECT_CHANGED", "The active project changed. Refresh its status before preparing media."));
+    }
+    if (!open.project.assets.some((asset) => asset.id === assetId && asset.kind === "video")) {
+      return reply.code(404).send(apiError("NOT_FOUND", "Video asset not found."));
+    }
+    try {
+      if (action === "cancel") await proxies.cancel(assetId);
+      else await importer.prepareProxy(assetId, version);
+      session.assertVersion(version);
+      return { proxies: proxies.list() };
+    } catch (error) {
+      if (error instanceof SessionError) return reply.code(409).send(apiError(error.code, error.message));
+      if (error instanceof MediaError) return reply.code(422).send(apiError(error.code, error.message));
+      throw error;
+    }
+  });
 
   // Server-sent events; the token travels in the query string because EventSource cannot set headers.
   app.get("/project/events", (req, reply) => {
@@ -127,8 +151,8 @@ export function registerMediaRoutes(
     });
     const send = (state: ProxyState) => reply.raw.write(`event: proxy\ndata: ${JSON.stringify(state)}\n\n`);
     reply.raw.write(": connected\n\n");
-    for (const state of proxies.list()) send(state);
     const unsubscribe = proxies.subscribe(send);
+    for (const state of proxies.list()) send(state);
     const keepAlive = setInterval(() => reply.raw.write(": ping\n\n"), 15_000);
     req.raw.on("close", () => {
       clearInterval(keepAlive);
@@ -147,6 +171,53 @@ export function registerMediaRoutes(
 
     const range = parseRange(req.headers.range, size);
     reply.header("accept-ranges", "bytes").header("content-type", "video/mp4").header("cache-control", "no-store");
+    if (range === "invalid") return reply.code(416).header("content-range", `bytes */${size}`).send();
+    if (!range) return reply.header("content-length", size).send(createReadStream(file));
+    return reply
+      .code(206)
+      .header("content-range", `bytes ${range.start}-${range.end}/${size}`)
+      .header("content-length", range.end - range.start + 1)
+      .send(createReadStream(file, { start: range.start, end: range.end }));
+  });
+
+  app.get<{ Params: { assetId: string } }>("/media/:assetId/source", async (req, reply: FastifyReply) => {
+    const open = session.open;
+    const asset = open?.project.assets.find((a) => a.id === req.params.assetId);
+    if (!open || !asset) {
+      return reply.code(404).send(apiError("NOT_FOUND", "No playable source is available for this asset."));
+    }
+    const contentTypes: Record<string, string> = {
+      ".aac": "audio/aac",
+      ".bmp": "image/bmp",
+      ".flac": "audio/flac",
+      ".gif": "image/gif",
+      ".jpeg": "image/jpeg",
+      ".jpg": "image/jpeg",
+      ".m4a": "audio/mp4",
+      ".mp3": "audio/mpeg",
+      ".mp4": "video/mp4",
+      ".m4v": "video/mp4",
+      ".mov": "video/quicktime",
+      ".mkv": "video/x-matroska",
+      ".avi": "video/x-msvideo",
+      ".mts": "video/mp2t",
+      ".m2ts": "video/mp2t",
+      ".oga": "audio/ogg",
+      ".ogg": "audio/ogg",
+      ".opus": "audio/ogg",
+      ".png": "image/png",
+      ".tif": "image/tiff",
+      ".tiff": "image/tiff",
+      ".wav": "audio/wav",
+      ".webp": "image/webp",
+      ".webm": "video/webm",
+    };
+    const file = resolveAssetPath(open.folder, asset);
+    const size = await stat(file).then((s) => s.size, () => -1);
+    const contentType = contentTypes[path.extname(file).toLowerCase()] ?? (asset.kind === "video" ? "application/octet-stream" : undefined);
+    if (size < 0 || !contentType) return reply.code(404).send(apiError("NOT_FOUND", "The media source is missing or unsupported."));
+    const range = parseRange(req.headers.range, size);
+    reply.header("accept-ranges", "bytes").header("content-type", contentType).header("cache-control", "no-store");
     if (range === "invalid") return reply.code(416).header("content-range", `bytes */${size}`).send();
     if (!range) return reply.header("content-length", size).send(createReadStream(file));
     return reply

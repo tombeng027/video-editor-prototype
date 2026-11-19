@@ -6,13 +6,24 @@ A Windows-first desktop video editor prototype. Local Ollama guidance and CLIP-b
 
 ## Status
 
-Milestone 1 (foundation) is complete. M2 (manual vertical slice) is complete: project create/save/open, import with proxies, timeline and preview with split and delete, and MP4 export with progress and cancel. M3 (timeline usability) is next.
+Milestone 1 (foundation) and M2 (manual vertical slice) are complete. M3 (timeline usability) is in progress; the current build can already edit and export a short video end to end:
 
-- `@ve/schema` and `@ve/timeline-core`: validated commands and inverse commands; undo/redo UI is planned for M3.
-- `apps/engine`: Fastify with token and Origin auth, `/health` probes.
-- `apps/client`: React shell with resizable panes.
+- Projects: create/save/open with backup recovery, media import by reference or copy, optional proxies.
+- Timeline: multiple video/overlay/audio tracks, split, trim, move, delete, undo/redo, track mute/lock, split audio onto an audio track.
+- Clip properties: speed (0.25x-4x), per-clip volume (0-100%), position/scale/opacity with on-canvas resize, crop (free-form or aspect-locked), entrance/exit animations and two-point zoom.
+- Captions: a manual caption lane shown in Preview only; captions are not included in exports yet.
+- Export: MP4 with frame-rate, resolution and quality settings, progress, cancel and verified output.
+- Recovery: error catalog, in-app Help and diagnostic IDs for failed operations.
+
+Package layout:
+
+- `@ve/schema` and `@ve/timeline-core`: validated commands with exact inverse commands (used for undo/redo).
+- `apps/engine`: Fastify with token and Origin auth, project persistence, media import and FFmpeg export.
+- `apps/client`: React editor UI (assets, preview, timeline, properties).
 - `apps/desktop`: Electron shell that launches the engine.
 - `apps/vision`: FastAPI stub with `/health` (Python 3.11-3.12, managed by `uv`).
+
+Not yet available: caption/subtitle export, between-clip transitions, the AI assistant (M4-M5) and jump-cut candidates (M6).
 
 How to run and test: [docs/13-run-and-manual-testing.md](./docs/13-run-and-manual-testing.md). Public participation and demo guidance: [docs/14-content-and-marketing.md](./docs/14-content-and-marketing.md). Future idea: [auto-captions concept](./docs/15-captions-concept.md).
 
@@ -35,6 +46,8 @@ Third-party software, model weights, media and other separately licensed materia
 See [contribution guidance](./CONTRIBUTING.md). This is a bounded community project emphasizing reliable engineering and QA, not a commitment to a commercial editor launch. Sponsorship supports the work without automatically purchasing ownership or feature delivery. The [project priorities and scope gate](./docs/01-overview-and-scope.md#maintainer-purpose-and-scope-gate) guide future decisions.
 
 ## Development
+
+Start and finish each session with the [Development Session Checklist](./docs/20-development-session-checklist.md). Review documentation, in-app Help, error definitions and unknown-error follow-ups as part of delivery, using focused validation and the agreed credit budget.
 
 Requires Node 22+ and pnpm.
 

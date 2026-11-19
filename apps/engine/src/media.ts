@@ -4,7 +4,7 @@ import { open } from "node:fs/promises";
 import type { Rational } from "@ve/schema";
 
 export type MediaInfo = {
-  kind: "video" | "audio";
+  kind: "video" | "audio" | "image";
   /** Native frames in `fps`; audio uses a 1000/1 (millisecond) timebase. */
   durationFrames: number;
   fps: Rational | null;
@@ -12,11 +12,13 @@ export type MediaInfo = {
   height: number | null;
   hasAudio: boolean;
   durationSeconds: number;
+  videoCodec?: string;
+  audioCodec?: string;
 };
 
 export class MediaError extends Error {
   constructor(
-    readonly code: "UNSUPPORTED" | "PROBE_FAILED",
+    readonly code: "UNSUPPORTED" | "PROBE_FAILED" | "ALREADY_IMPORTED" | "INVALID_MEDIA_PATH",
     message: string,
   ) {
     super(message);
@@ -24,6 +26,7 @@ export class MediaError extends Error {
 }
 
 type ProbeStream = {
+  codec_name?: string;
   codec_type?: string;
   avg_frame_rate?: string;
   r_frame_rate?: string;
@@ -55,7 +58,18 @@ export function interpretProbe(json: ProbeJson): MediaInfo {
   const audio = streams.find((s) => s.codec_type === "audio");
   const formatName = json.format?.format_name ?? "";
   if (video && formatName.split(",").some((f) => IMAGE_FORMATS.has(f))) {
-    throw new MediaError("UNSUPPORTED", "Images are not supported yet.");
+    if (!video.width || !video.height) {
+      throw new MediaError("PROBE_FAILED", "Could not read the image dimensions.");
+    }
+    return {
+      kind: "image",
+      durationFrames: 1,
+      fps: null,
+      width: video.width,
+      height: video.height,
+      hasAudio: false,
+      durationSeconds: 5,
+    };
   }
   const seconds = Number(video?.duration ?? json.format?.duration ?? audio?.duration);
   if (!video && !audio) throw new MediaError("UNSUPPORTED", "No audio or video stream was found.");
@@ -75,6 +89,8 @@ export function interpretProbe(json: ProbeJson): MediaInfo {
       height: video.height,
       hasAudio: Boolean(audio),
       durationSeconds: seconds,
+      videoCodec: video.codec_name,
+      audioCodec: audio?.codec_name,
     };
   }
   return {

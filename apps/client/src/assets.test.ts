@@ -11,6 +11,7 @@ describe("asset formatting", () => {
   it("computes seconds from native frames", () => {
     expect(assetSeconds(video)).toBeCloseTo(10.01, 2);
     expect(assetSeconds({ durationFrames: 1500, fps: { num: 1000, den: 1 } })).toBe(1.5);
+    expect(assetSeconds({ durationFrames: 150, fps: null }, { num: 30, den: 1 })).toBe(5);
   });
   it("formats durations and frame rates", () => {
     expect(formatDuration(65)).toBe("1:05");
@@ -23,10 +24,11 @@ describe("asset formatting", () => {
 describe("proxyBadge", () => {
   const state = (s: ProxyState["state"], percent = 0): ProxyState => ({ assetId: "a", state: s, percent });
   it("reflects proxy progress and readiness", () => {
-    expect(proxyBadge(video, state("running", 40))).toEqual({ label: "Preparing preview 40%", tone: "busy" });
+    expect(proxyBadge(video, state("running", 40))).toEqual({ label: "Optimizing preview 40%", tone: "busy" });
     expect(proxyBadge(video, state("failed"))).toMatchObject({ tone: "error" });
     expect(proxyBadge({ ...video, proxyPath: "proxies/a.mp4" }, undefined)).toEqual({ label: "Preview ready", tone: "ok" });
-    expect(proxyBadge(video, undefined).tone).toBe("busy");
+    expect(proxyBadge(video, undefined)).toEqual({ label: "Original preview", tone: "none" });
+    expect(proxyBadge(video, state("cancelled"))).toEqual({ label: "Optimization cancelled", tone: "neutral" });
     expect(proxyBadge({ ...video, kind: "audio" }, undefined).tone).toBe("none");
   });
 });

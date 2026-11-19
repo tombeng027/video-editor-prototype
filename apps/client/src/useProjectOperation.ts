@@ -3,7 +3,7 @@ import type { ProjectResponse } from "@ve/schema";
 import type { EngineConfig } from "./engine.js";
 import { diagnosticMessage, getProjectOperation, type ApiResult } from "./projectApi.js";
 
-const rejectedCodes = new Set(["INVALID_REQUEST", "INVALID_PATH", "ALREADY_EXISTS", "NOT_FOUND", "CORRUPT",
+const rejectedCodes = new Set(["INVALID_REQUEST", "INVALID_PATH", "ALREADY_EXISTS", "NOT_FOUND", "CORRUPT", "UNSUPPORTED_PROJECT_VERSION",
   "STORE_IO_FAILED", "SAVE_FAILED", "SAVE_CLEANUP_FAILED", "PROJECT_OPERATION_BUSY"]);
 
 export function useProjectOperation(config: EngineConfig, onOpened: (response: ProjectResponse) => void) {

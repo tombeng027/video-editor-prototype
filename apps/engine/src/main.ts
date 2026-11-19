@@ -1,12 +1,18 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { exitWhenParentGone } from "./parentWatch.js";
+import { closeDiagnosticSink, configureDiagnosticSink } from "./diagnostics.js";
 
 const config = loadConfig();
+configureDiagnosticSink(config.dataDir);
 const app = await buildApp(config);
 
 const shutdown = async () => {
-  await app.close();
+  try {
+    await app.close();
+  } finally {
+    closeDiagnosticSink();
+  }
   process.exit(0);
 };
 process.on("SIGINT", shutdown);
