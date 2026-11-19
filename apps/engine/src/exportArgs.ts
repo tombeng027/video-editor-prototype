@@ -149,16 +149,21 @@ export function buildExportArgs(plan: RenderPlan, assets: ReadonlyMap<string, Ex
         : clip.sourceInFrame;
       const sourceLength = Math.min(clip.durationFrames * (clip.speed ?? 1),
         clip.sourceOutFrame === undefined ? Infinity : clip.sourceOutFrame - clip.sourceInFrame);
-      inputs.push("-stream_loop", "-1", "-ss", sec(sourceIn, plan), "-t", sec(sourceLength, plan), "-i", asset.path);
+      // Loop only clips that run past their file; looping one that ends at the file end replays trimmed-away audio.
+      // Up to a frame of rounding short is padded with silence instead.
+      const loops = Boolean(asset.durationFrames) && sourceIn + sourceLength > asset.durationFrames! + 1;
+      inputs.push(...(loops ? ["-stream_loop", "-1"] : []), "-ss", sec(sourceIn, plan), "-t", sec(sourceLength, plan), "-i", asset.path);
       const label = `timelineAudio${i}`;
+      // Sample-count timestamps keep atrim exact even across a loop's timestamp jump.
       chains.push(
-        `[${index}:a:0]asetpts=PTS-STARTPTS,${tempo(clip.speed ?? 1)}${gain(clip.volume)}aresample=${AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+        `[${index}:a:0]asetpts=N/SR/TB,${tempo(clip.speed ?? 1)}${gain(clip.volume)}aresample=${AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,` +
         `apad,atrim=duration=${length},asetpts=PTS-STARTPTS,adelay=${delay}:all=1[${label}]`,
       );
       externalAudio.push(`[${label}]`);
     });
     audioOutput = "mixedAudio";
-    chains.push(`[aout]${externalAudio.join("")}amix=inputs=${externalAudio.length + 1}:duration=first:dropout_transition=0[${audioOutput}]`);
+    // Summed like stacked layers; amix's default normalization would divide every input by the clip count.
+    chains.push(`[aout]${externalAudio.join("")}amix=inputs=${externalAudio.length + 1}:duration=first:dropout_transition=0:normalize=0[${audioOutput}]`);
   }
 
   let videoOutput = "vout";

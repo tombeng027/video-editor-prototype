@@ -256,8 +256,8 @@ describe("projectApi", () => {
 
   it("retains project-operation warnings and distinguishes an empty recent list from failure", async () => {
     const project = {
-      schemaVersion: 1, id: "p", name: "Demo", settings: { fps: { num: 30, den: 1 }, width: 640, height: 360, fpsFromFirstImport: false },
-      assets: [], tracks: [], createdAt: "", updatedAt: "",
+      schemaVersion: 2, id: "p", name: "Demo", settings: { fps: { num: 30, den: 1 }, width: 640, height: 360, fpsFromFirstImport: false },
+      assets: [], tracks: [], captionCues: [], createdAt: "", updatedAt: "",
     };
     const warnings = [{ code: "RECENT_UPDATE_FAILED", message: "Open succeeded; index update failed." }];
     expect(await createProject(config, { folder: "x", name: "Demo", fps: { num: 30, den: 1 }, width: 640, height: 360 },

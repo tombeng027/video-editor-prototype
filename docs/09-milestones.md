@@ -140,6 +140,10 @@ Delivered scope and remaining boundary:
    desktop acceptance pending. Every stacked visual clip's own sound plays in
    preview and is summed in export (previously export kept only the top clip's
    sound). Video/overlay tracks gained Mute, which silences sound but keeps the picture.
+   Audio-track clips are also summed at full level (2026-11-19 fix: the final mix had
+   divided every input by the clip count, making exports with many audio clips very quiet).
+   Audio clips that end at the end of their file no longer replay trimmed-away audio in
+   export (2026-11-19 fix: only clips running past their file loop; real-FFmpeg regression).
 8. Canvas editing (owner-approved 2026-11-05) is implemented locally; the owner
    tried it on the desktop on 2026-11-05 and reported it works (general acceptance,
    not a step-by-step checklist pass). Preview placement is verified against export by a

@@ -143,8 +143,9 @@ describe("buildExportArgs", () => {
     const args = buildExportArgs(plan(project), assets, "out.mp4");
     const graph = args[args.indexOf("-filter_complex") + 1]!;
     expect(graph).toMatch(/\[0:a:0\]asetpts=PTS-STARTPTS,volume=0\.5,/);
-    expect(graph).toMatch(/\[1:a:0\]asetpts=PTS-STARTPTS,volume=0\.2,/);
-    expect(graph).toMatch(/\[2:a:0\]asetpts=PTS-STARTPTS,aresample/);
+    expect(graph).toMatch(/\[1:a:0\]asetpts=N\/SR\/TB,volume=0\.2,/);
+    expect(graph).toMatch(/\[2:a:0\]asetpts=N\/SR\/TB,aresample/);
+    expect(graph).toContain("amix=inputs=3:duration=first:dropout_transition=0:normalize=0[mixedAudio]");
   });
 
   it("converts only the final composition, retaining project time mapping and selected quality", () => {
@@ -1020,6 +1021,43 @@ describe.skipIf(!hasFfmpeg)("export (real FFmpeg)", () => {
       energy += sample * sample;
     }
     expect(energy).toBeGreaterThan(0);
+    await rm(result.outputPath!);
+  }, 60_000);
+
+  it("does not loop back into trimmed-away audio when a clip ends at the end of its source file", async () => {
+    const voice = path.join(tmp, "voice.wav");
+    // One second of tone (the trimmed-away line) followed by one second of silence (the kept tail).
+    execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,1)\\,0.5*sin(2*PI*440*t)\\,0):s=48000:d=2", voice], { stdio: "ignore" });
+    app = await buildApp(loadConfig({ ENGINE_TOKEN: "secret", ENGINE_DATA_DIR: path.join(tmp, "data-audio-tail") }));
+    const folder = path.join(tmp, "audio-tail-project");
+    await app.inject({ method: "POST", url: "/project/create", headers, payload: { folder, name: "Tail", fps, width: 640, height: 360 } });
+    const voiceAsset: Asset = {
+      ...asset("voice", voice), kind: "audio", durationFrames: 2000, fps: { num: 1000, den: 1 }, width: null, height: null, hasAudio: true,
+    };
+    const commands: Command[] = [
+      { type: "AddAsset", asset: voiceAsset },
+      { type: "AddTrack", track: { id: "audio-track", kind: "audio", order: 0, muted: false, locked: false, clips: [] } },
+      { type: "AddClip", trackId: "audio-track", clip: {
+        id: "tail", assetId: "voice", timelineStart: 0, sourceIn: 30, sourceOut: 60, speed: 1, audioLinked: true,
+      } },
+      { type: "AddClip", trackId: "audio-track", clip: {
+        id: "later", assetId: "voice", timelineStart: 60, sourceIn: 30, sourceOut: 60, speed: 1, audioLinked: true,
+      } },
+    ];
+    expect((await app.inject({ method: "POST", url: "/project/commands", headers, payload: { commands } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/project/export", headers })).statusCode).toBe(202);
+    let result = { state: "running" } as { state: string; outputPath?: string };
+    for (let i = 0; i < 600 && result.state === "running"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      result = (await app.inject({ url: "/project/export", headers })).json();
+    }
+    expect(result).toMatchObject({ state: "done" });
+    const samples = execFileSync("ffmpeg", [
+      "-v", "error", "-ss", "0.1", "-t", "2.8", "-i", result.outputPath!, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1",
+    ]);
+    let peak = 0;
+    for (let i = 0; i + 1 < samples.length; i += 2) peak = Math.max(peak, Math.abs(samples.readInt16LE(i)));
+    expect(peak).toBeLessThan(100);
     await rm(result.outputPath!);
   }, 60_000);
 
